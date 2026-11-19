@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.supabase/
+.DS_Store
+Thumbs.db
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Vercel
+.vercel/
+
+# Vite cache
+.vite/
+
+# Test coverage
+coverage/
+
+# Supabase local files
+supabase/.temp/
