@@ -16,6 +16,23 @@ Built with React and TypeScript, this application is designed as a Progressive W
 - **Import & Export** — Back up and restore application data using JSON.
 - **Audio Customization** — Upload and manage custom timer sounds.
 
+## Application Preview
+
+### Today
+![Today Dashboard](screenshots/today.jpeg)
+
+### Tasks
+![Task Management](screenshots/tasks.jpeg)
+
+### Calendar
+![Calendar](screenshots/calendar.jpeg)
+
+### Progress
+![Progress Tracking](screenshots/progress.jpeg)
+
+### More
+![Application Settings](screenshots/more.jpeg)
+
 ## Tech Stack
 
 - React
