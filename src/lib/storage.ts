@@ -13,30 +13,61 @@ export function normalizeAppData(
   const saved = input ?? {}
 
   const savedSettings = saved.settings
+  const savedProfile = saved.profile
 
   const dailyRecords: Record<string, DailyRecord> = {}
 
   if (
     saved.dailyRecords &&
-    typeof saved.dailyRecords === 'object'
+    typeof saved.dailyRecords === 'object' &&
+    !Array.isArray(saved.dailyRecords)
   ) {
     Object.entries(saved.dailyRecords).forEach(([date, record]) => {
+      if (!record || typeof record !== 'object') return
+
       dailyRecords[date] = {
-        habitStatus: record?.habitStatus ?? {},
-        note: record?.note ?? '',
-        focusSessions: record?.focusSessions ?? 0,
-        focusMinutes: record?.focusMinutes ?? 0,
+        habitStatus:
+          record.habitStatus &&
+          typeof record.habitStatus === 'object'
+            ? record.habitStatus
+            : {},
+        note:
+          typeof record.note === 'string'
+            ? record.note
+            : '',
+        focusSessions:
+          typeof record.focusSessions === 'number'
+            ? record.focusSessions
+            : 0,
+        focusMinutes:
+          typeof record.focusMinutes === 'number'
+            ? record.focusMinutes
+            : 0,
       }
     })
   }
 
   return {
+    profile: {
+      name:
+        typeof savedProfile?.name === 'string'
+          ? savedProfile.name
+          : initialAppData.profile.name,
+
+      photo:
+        typeof savedProfile?.photo === 'string'
+          ? savedProfile.photo
+          : null,
+    },
+
     tasks: Array.isArray(saved.tasks)
       ? saved.tasks
       : initialAppData.tasks,
 
     agenda:
-      saved.agenda && typeof saved.agenda === 'object'
+      saved.agenda &&
+      typeof saved.agenda === 'object' &&
+      !Array.isArray(saved.agenda)
         ? saved.agenda
         : initialAppData.agenda,
 
@@ -49,6 +80,7 @@ export function normalizeAppData(
     settings: {
       ...initialAppData.settings,
       ...savedSettings,
+
       notifications: {
         ...initialAppData.settings.notifications,
         ...savedSettings?.notifications,
@@ -62,7 +94,7 @@ export function getAppData(): AppData {
     const savedData = localStorage.getItem(STORAGE_KEY)
 
     if (!savedData) {
-      return initialAppData
+      return normalizeAppData(initialAppData)
     }
 
     const parsedData = JSON.parse(savedData) as Partial<AppData>
@@ -70,7 +102,8 @@ export function getAppData(): AppData {
     return normalizeAppData(parsedData)
   } catch (error) {
     console.error('Gagal membaca data aplikasi:', error)
-    return initialAppData
+
+    return normalizeAppData(initialAppData)
   }
 }
 

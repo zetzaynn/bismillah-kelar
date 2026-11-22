@@ -3,13 +3,11 @@ import { useMemo, useState } from 'react'
 import {
   Search,
   SlidersHorizontal,
-  Plus,
   Check,
-  X,
   Clock3,
   CalendarDays,
-  ChevronDown,
   ChevronUp,
+  ChevronDown,
 } from 'lucide-react'
 
 import { useAppData } from '../hooks/AppContext'
@@ -63,26 +61,18 @@ const categoryStyle: Record<string, string> = {
 }
 
 export default function Tasks() {
-  const { data, addTask, updateTask } = useAppData()
+  const { data, updateTask } = useAppData()
   const tasks = data.tasks
 
+  const profileName = data.profile.name.trim() || 'teman'
   const todayString = getDateString(new Date())
 
   const [activeFilter, setActiveFilter] = useState<FilterType>('Hari Ini')
   const [search, setSearch] = useState('')
   const [showCompleted, setShowCompleted] = useState(true)
-  const [showModal, setShowModal] = useState(false)
   const [showSort, setShowSort] = useState(false)
   const [sortBy, setSortBy] = useState<'Tanggal' | 'Prioritas'>('Tanggal')
 
-  const [newTitle, setNewTitle] = useState('')
-  const [newCategory, setNewCategory] = useState('Kuliah')
-  const [newPriority, setNewPriority] =
-    useState<Task['priority']>('Sedang')
-  const [newDate, setNewDate] = useState(todayString)
-  const [newTime, setNewTime] = useState('20:00')
-
-  // Ringkasan tugas
   const total = tasks.length
 
   const completed = tasks.filter(
@@ -97,7 +87,6 @@ export default function Tasks() {
     (task) => task.status === 'todo' && task.date >= todayString,
   ).length
 
-  // Pencarian, filter, dan pengurutan
   const filteredTasks = useMemo(() => {
     let result = tasks.filter((task) =>
       task.title.toLowerCase().includes(search.toLowerCase()),
@@ -146,7 +135,6 @@ export default function Tasks() {
     (task) => task.status === 'done',
   )
 
-  // Mengubah status tugas
   function toggleTask(id: number) {
     const task = tasks.find((item) => item.id === id)
 
@@ -157,32 +145,6 @@ export default function Tasks() {
     })
   }
 
-  // Menyimpan tugas baru ke AppContext
-  function saveTask() {
-    if (!newTitle.trim()) return
-
-    const newTask: Task = {
-      id: Date.now(),
-      title: newTitle.trim(),
-      category: newCategory,
-      priority: newPriority,
-      date: newDate,
-      time: newTime,
-      status: 'todo',
-    }
-
-    addTask(newTask)
-
-    setNewTitle('')
-    setNewCategory('Kuliah')
-    setNewPriority('Sedang')
-    setNewDate(todayString)
-    setNewTime('20:00')
-    setShowModal(false)
-    setActiveFilter('Semua')
-  }
-
-  // Komponen baris tugas
   function TaskRow({ task }: { task: Task }) {
     const done = task.status === 'done'
 
@@ -244,7 +206,6 @@ export default function Tasks() {
     )
   }
 
-  // Komponen kelompok tugas
   function Section({
     title,
     items,
@@ -275,22 +236,19 @@ export default function Tasks() {
 
   return (
     <div className="relative space-y-5 pb-24">
-
-      {/* Header halaman */}
-      <section className="flex items-center justify-between">
+      <section className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Tugas</h1>
           <p className="mt-1 text-xs text-[#77716a]">
-            Manajemen target & produktivitas mandiri Zayy
+            Manajemen target & produktivitas mandiri {profileName}
           </p>
         </div>
 
-        <span className="rounded-full bg-[#d9ccff] px-3 py-1.5 text-[10px] font-bold text-[#4a406b]">
-          ● Fokus Zayy
+        <span className="shrink-0 rounded-full bg-[#d9ccff] px-3 py-1.5 text-[10px] font-bold text-[#4a406b]">
+          ● Fokus {profileName}
         </span>
       </section>
 
-      {/* Pencarian dan sortir */}
       <section className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search
@@ -310,6 +268,7 @@ export default function Tasks() {
           <button
             onClick={() => setShowSort(!showSort)}
             aria-label="Filter dan urutkan"
+            aria-expanded={showSort}
             className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#eee8df] bg-white"
           >
             <SlidersHorizontal size={18} />
@@ -342,7 +301,6 @@ export default function Tasks() {
         </div>
       </section>
 
-      {/* Ringkasan tugas */}
       <section className="flex items-center justify-between gap-1 rounded-xl bg-[#f5f0e7] px-3 py-4">
         {[
           { label: 'Total', value: total, color: 'text-[#252525]' },
@@ -371,7 +329,6 @@ export default function Tasks() {
         ))}
       </section>
 
-      {/* Filter status */}
       <section className="flex gap-2 overflow-x-auto pb-2">
         {filters.map((filter) => {
           const count =
@@ -408,7 +365,6 @@ export default function Tasks() {
         })}
       </section>
 
-      {/* Daftar tugas */}
       {filteredTasks.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[#d8d0c4] px-4 py-12 text-center">
           <CalendarDays size={30} className="mx-auto text-[#aaa197]" />
@@ -416,13 +372,12 @@ export default function Tasks() {
           <h3 className="mt-3 text-sm font-bold">Belum ada tugas</h3>
 
           <p className="mt-1 text-xs text-[#77716a]">
-            Coba ubah filter atau tambahkan tugas baru.
+            Coba ubah filter atau tambahkan target baru.
           </p>
         </div>
       ) : (
         <>
           <Section title="Prioritas Hari Ini" items={todayTasks} />
-
           <Section title="Mendatang & Studi" items={upcomingTasks} />
 
           {completedTasks.length > 0 && (
@@ -464,128 +419,6 @@ export default function Tasks() {
         </>
       )}
 
-      {/* Tombol tambah tugas */}
-      <button
-        onClick={() => setShowModal(true)}
-        className="fixed bottom-24 right-6 z-40 flex items-center gap-2 rounded-full border-2 border-[#252525] bg-[#d9ccff] px-5 py-3 text-xs font-bold shadow-[3px_3px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
-      >
-        <Plus size={18} />
-        Tambah Tugas
-      </button>
-
-      {/* Modal tambah tugas */}
-      {showModal && (
-        <div
-          onClick={() => setShowModal(false)}
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-[#252525]/40 backdrop-blur-sm"
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            className="max-h-[90vh] w-full max-w-[480px] space-y-4 overflow-y-auto rounded-t-2xl bg-[#fffaf1] p-5 pb-8 shadow-2xl"
-          >
-            <div className="mx-auto h-1 w-12 rounded-full bg-[#d8d0c4]" />
-
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">Tugas Baru Zayy</h2>
-
-              <button
-                onClick={() => setShowModal(false)}
-                aria-label="Tutup modal"
-                className="rounded-full p-2 hover:bg-[#f0ece4]"
-              >
-                <X size={19} />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-semibold">Judul Tugas</label>
-
-              <input
-                autoFocus
-                value={newTitle}
-                onChange={(event) => setNewTitle(event.target.value)}
-                placeholder="Misal: Review Bab 6..."
-                className="w-full rounded-lg bg-[#f5f0e7] px-3 py-3 text-sm outline-none focus:ring-1 focus:ring-[#252525]"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold">Kategori</label>
-
-                <select
-                  value={newCategory}
-                  onChange={(event) => setNewCategory(event.target.value)}
-                  className="w-full rounded-lg bg-[#f5f0e7] px-3 py-3 text-xs outline-none"
-                >
-                  <option>Kuliah</option>
-                  <option>Pribadi</option>
-                  <option>Rutinitas</option>
-                  <option>Kesehatan</option>
-                  <option>Kajian</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-semibold">Prioritas</label>
-
-                <select
-                  value={newPriority}
-                  onChange={(event) =>
-                    setNewPriority(event.target.value as Task['priority'])
-                  }
-                  className="w-full rounded-lg bg-[#f5f0e7] px-3 py-3 text-xs outline-none"
-                >
-                  <option>Tinggi</option>
-                  <option>Sedang</option>
-                  <option>Rendah</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold">Tanggal</label>
-
-                <input
-                  type="date"
-                  value={newDate}
-                  onChange={(event) => setNewDate(event.target.value)}
-                  className="w-full min-w-0 rounded-lg bg-[#f5f0e7] px-2 py-3 text-xs outline-none"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-semibold">Waktu</label>
-
-                <input
-                  type="time"
-                  value={newTime}
-                  onChange={(event) => setNewTime(event.target.value)}
-                  className="w-full rounded-lg bg-[#f5f0e7] px-3 py-3 text-xs outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowModal(false)}
-                className="rounded-lg px-4 py-3 text-xs font-semibold text-[#77716a]"
-              >
-                Batal
-              </button>
-
-              <button
-                onClick={saveTask}
-                disabled={!newTitle.trim()}
-                className="rounded-lg border border-[#252525] bg-[#252525] px-5 py-3 text-xs font-bold text-white shadow-[2px_2px_0_#fae195] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Simpan Tugas
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

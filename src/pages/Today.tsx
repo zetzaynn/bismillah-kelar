@@ -8,14 +8,41 @@ import {
   Play,
   Square,
   BookOpen,
-  Droplets,
-  NotebookPen,
+  Dumbbell,
+  Moon,
   Lock,
   RotateCcw,
+  Plus,
+  Pencil,
+  Trash2,
+  X,
+  Heart,
+  HandHeart,
+  Footprints,
+  Bike,
+  Bed,
+  GraduationCap,
+  BookMarked,
+  HeartPulse,
+  Droplets,
+  NotebookPen,
+  Laptop,
+  Sun,
+  House,
+  Wallet,
+  Leaf,
+  MoreHorizontal,
+  Apple,
+  AlarmClock,
+  Brain,
+  Brush,
+  CookingPot,
+  Languages,
+  type LucideIcon,
 } from 'lucide-react'
 
 import { useAppData } from '../hooks/AppContext'
-import type { Task } from '../types/app'
+import type { Task, Habit } from '../types/app'
 
 function getDateString(date: Date) {
   return [
@@ -25,7 +52,6 @@ function getDateString(date: Date) {
   ].join('-')
 }
 
-// Mengubah detik menjadi format MM:SS
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = seconds % 60
@@ -35,11 +61,104 @@ function formatTime(seconds: number) {
   ).padStart(2, '0')}`
 }
 
+const habitIconMap: Record<string, LucideIcon> = {
+  BookOpen,
+  Dumbbell,
+  Moon,
+  Heart,
+  HandHeart,
+  Footprints,
+  Bike,
+  Bed,
+  GraduationCap,
+  BookMarked,
+  HeartPulse,
+  Droplets,
+  NotebookPen,
+  Laptop,
+  Sun,
+  House,
+  Wallet,
+  Leaf,
+  Apple,
+  AlarmClock,
+  Brain,
+  Brush,
+  CookingPot,
+  Languages,
+}
+
+const habitIconOptions: {
+  name: string
+  label: string
+  icon: LucideIcon
+}[] = [
+  { name: 'BookOpen', label: 'Buku', icon: BookOpen },
+  { name: 'BookMarked', label: 'Membaca', icon: BookMarked },
+  { name: 'HandHeart', label: 'Ibadah', icon: HandHeart },
+  { name: 'Heart', label: 'Hati', icon: Heart },
+  { name: 'Dumbbell', label: 'Olahraga', icon: Dumbbell },
+  { name: 'Footprints', label: 'Jalan', icon: Footprints },
+  { name: 'Bike', label: 'Bersepeda', icon: Bike },
+  { name: 'Moon', label: 'Tidur', icon: Moon },
+  { name: 'Bed', label: 'Istirahat', icon: Bed },
+  { name: 'GraduationCap', label: 'Belajar', icon: GraduationCap },
+  { name: 'HeartPulse', label: 'Kesehatan', icon: HeartPulse },
+  { name: 'Droplets', label: 'Hidrasi', icon: Droplets },
+  { name: 'NotebookPen', label: 'Menulis', icon: NotebookPen },
+  { name: 'Laptop', label: 'Produktif', icon: Laptop },
+  { name: 'Sun', label: 'Pagi', icon: Sun },
+  { name: 'House', label: 'Rumah', icon: House },
+  { name: 'Wallet', label: 'Keuangan', icon: Wallet },
+  { name: 'Leaf', label: 'Alam', icon: Leaf },
+  { name: 'Apple', label: 'Makanan', icon: Apple },
+  { name: 'AlarmClock', label: 'Disiplin', icon: AlarmClock },
+  { name: 'Brain', label: 'Mental', icon: Brain },
+  { name: 'Brush', label: 'Kebersihan', icon: Brush },
+  { name: 'CookingPot', label: 'Memasak', icon: CookingPot },
+  { name: 'Languages', label: 'Bahasa', icon: Languages },
+]
+
+function getHabitIconName(title: string) {
+  const normalizedTitle = title.toLowerCase()
+
+  if (
+    normalizedTitle.includes('mengaji') ||
+    normalizedTitle.includes('baca') ||
+    normalizedTitle.includes('quran') ||
+    normalizedTitle.includes('alquran') ||
+    normalizedTitle.includes('tilawah')
+  ) {
+    return 'BookOpen'
+  }
+
+  if (
+    normalizedTitle.includes('olahraga') ||
+    normalizedTitle.includes('lari') ||
+    normalizedTitle.includes('workout') ||
+    normalizedTitle.includes('gym')
+  ) {
+    return 'Dumbbell'
+  }
+
+  if (
+    normalizedTitle.includes('tidur') ||
+    normalizedTitle.includes('istirahat')
+  ) {
+    return 'Moon'
+  }
+
+  return 'CheckCircle2'
+}
+
 export default function Today() {
   const {
     data,
     updateTask,
     updateDailyRecord,
+    addHabit,
+    updateHabit,
+    deleteHabit,
     focusTimer,
     startFocusTimer,
     pauseFocusTimer,
@@ -51,23 +170,34 @@ export default function Today() {
   const today = new Date()
   const todayString = getDateString(today)
 
+  const profileName = data.profile.name.trim() || 'teman'
+
   const todayRecord = data.dailyRecords[todayString]
   const habitStatus = todayRecord?.habitStatus ?? {}
   const note = todayRecord?.note ?? ''
   const focusSessions = todayRecord?.focusSessions ?? 0
 
-  // State catatan
   const [saved, setSaved] = useState(false)
-
-  // State untuk memperbarui tampilan countdown.
-  // Timer sebenarnya tetap berjalan di AppContext.
   const [now, setNow] = useState(() => Date.now())
 
-  // Pesan ketika mode timer berganti
   const [sessionMessage, setSessionMessage] = useState('')
   const previousMode = useRef(focusTimer.mode)
 
-  // Mengambil data timer global
+  const [habitModalOpen, setHabitModalOpen] = useState(false)
+  const [editingHabitId, setEditingHabitId] = useState<number | null>(null)
+  const [habitTitle, setHabitTitle] = useState('')
+  const [habitDetail, setHabitDetail] = useState('')
+  const [selectedHabitIcon, setSelectedHabitIcon] = useState('BookOpen')
+  const [showAllHabitIcons, setShowAllHabitIcons] = useState(false)
+
+  const [habitActionMode, setHabitActionMode] = useState<
+    'normal' | 'edit' | 'delete'
+  >('normal')
+
+  const visibleHabitIcons = showAllHabitIcons
+    ? habitIconOptions
+    : habitIconOptions.slice(0, 9)
+
   const mode = focusTimer.mode
   const isRunning = focusTimer.status === 'running'
 
@@ -81,7 +211,6 @@ export default function Today() {
         )
       : focusTimer.remainingSeconds
 
-  // Memperbarui tampilan countdown setiap 250 milidetik
   useEffect(() => {
     if (!isRunning) return
 
@@ -92,7 +221,6 @@ export default function Today() {
     return () => window.clearInterval(interval)
   }, [isRunning, focusTimer.endsAt])
 
-  // Memperbarui pesan ketika mode fokus/istirahat berganti
   useEffect(() => {
     if (previousMode.current !== mode) {
       setSessionMessage(
@@ -105,13 +233,11 @@ export default function Today() {
     }
   }, [mode])
 
-  // Mengambil rutinitas dari AppContext
   const habits = data.habits.map((habit) => ({
     ...habit,
     done: habitStatus[habit.id] ?? false,
   }))
 
-  // Mengambil tugas berdasarkan tanggal hari ini
   const tasks = data.tasks
     .filter((task) => task.date === todayString)
     .sort((a, b) => a.time.localeCompare(b.time))
@@ -126,7 +252,6 @@ export default function Today() {
     (habit) => habit.done,
   ).length
 
-  // Format tanggal
   const weekday = new Intl.DateTimeFormat('id-ID', {
     weekday: 'long',
   }).format(today)
@@ -137,7 +262,6 @@ export default function Today() {
     year: 'numeric',
   }).format(today)
 
-  // Kalender mingguan
   const weekDays = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(today)
     const mondayOffset = (today.getDay() + 6) % 7
@@ -154,7 +278,6 @@ export default function Today() {
     }
   })
 
-  // Mengontrol timer global
   function toggleTimer() {
     setSessionMessage('')
 
@@ -165,20 +288,17 @@ export default function Today() {
     }
   }
 
-  // Reset timer global
   function resetTimer() {
     resetFocusTimer()
     setSessionMessage('')
   }
 
-  // Mengubah status tugas melalui AppContext
   function toggleTask(task: Task) {
     updateTask(task.id, {
       status: task.status === 'done' ? 'todo' : 'done',
     })
   }
 
-  // Mengubah status rutinitas dan menyimpannya berdasarkan tanggal
   function toggleHabit(id: number) {
     updateDailyRecord(todayString, {
       habitStatus: {
@@ -187,7 +307,81 @@ export default function Today() {
     })
   }
 
-  // Menyimpan catatan otomatis melalui AppContext
+  function openAddHabit() {
+    setEditingHabitId(null)
+    setHabitTitle('')
+    setHabitDetail('')
+    setSelectedHabitIcon('BookOpen')
+    setShowAllHabitIcons(false)
+    setHabitModalOpen(true)
+  }
+
+  function openEditHabit(habit: Habit) {
+    setEditingHabitId(habit.id)
+    setHabitTitle(habit.title)
+    setHabitDetail(habit.detail)
+    setSelectedHabitIcon(
+      habit.icon || getHabitIconName(habit.title),
+    )
+    setShowAllHabitIcons(false)
+    setHabitModalOpen(true)
+    setHabitActionMode('normal')
+  }
+
+  function saveHabit() {
+    const title = habitTitle.trim()
+    const detail = habitDetail.trim()
+
+    if (!title) return
+
+    if (editingHabitId !== null) {
+      updateHabit(editingHabitId, {
+        title,
+        detail: detail || 'Rutinitas harian',
+        icon: selectedHabitIcon,
+      })
+    } else {
+      const newHabit: Habit = {
+        id: Date.now(),
+        title,
+        detail: detail || 'Rutinitas harian',
+        icon: selectedHabitIcon,
+      }
+
+      addHabit(newHabit)
+    }
+
+    setHabitModalOpen(false)
+    setEditingHabitId(null)
+    setHabitTitle('')
+    setHabitDetail('')
+    setSelectedHabitIcon('BookOpen')
+    setShowAllHabitIcons(false)
+    setHabitActionMode('normal')
+  }
+
+  function handleHabitClick(habit: Habit) {
+    if (habitActionMode === 'edit') {
+      openEditHabit(habit)
+      return
+    }
+
+    if (habitActionMode === 'delete') {
+      const confirmed = window.confirm(
+        `Hapus rutinitas "${habit.title}"?`,
+      )
+
+      if (confirmed) {
+        deleteHabit(habit.id)
+      }
+
+      setHabitActionMode('normal')
+      return
+    }
+
+    toggleHabit(habit.id)
+  }
+
   function handleNoteChange(value: string) {
     updateDailyRecord(todayString, {
       note: value,
@@ -196,7 +390,6 @@ export default function Today() {
     setSaved(false)
   }
 
-  // Indikator penyimpanan catatan
   function saveNote() {
     setSaved(true)
 
@@ -205,19 +398,19 @@ export default function Today() {
     }, 1800)
   }
 
-  const habitIcons = [BookOpen, Droplets, NotebookPen]
-
-  const progress = Math.min(
-    100,
-    Math.max(
-      0,
-      ((currentDuration - secondsLeft) / currentDuration) * 100,
-    ),
-  )
+  const progress =
+    currentDuration > 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            ((currentDuration - secondsLeft) / currentDuration) * 100,
+          ),
+        )
+      : 0
 
   return (
     <div className="space-y-7 pb-8">
-
       {/* Sapaan dan tanggal */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
@@ -237,7 +430,9 @@ export default function Today() {
 
           <p className="mt-1 text-sm text-[#77716a]">
             Semoga harimu berkah &amp; terarah,{' '}
-            <span className="font-bold text-[#252525]">Zayy</span>.
+            <span className="font-bold text-[#252525]">
+              {profileName}
+            </span>.
           </p>
         </div>
 
@@ -329,7 +524,7 @@ export default function Today() {
 
         <h2 className="mt-4 text-base font-bold">
           {mode === 'focus'
-            ? 'Waktunya fokus, Zayy.'
+            ? `Waktunya fokus, ${profileName}.`
             : 'Waktunya beristirahat.'}
         </h2>
 
@@ -339,7 +534,6 @@ export default function Today() {
             : 'Ambil jeda sejenak sebelum kembali beraktivitas.'}
         </p>
 
-        {/* Tampilan waktu */}
         <div className="mt-5 text-center">
           <p className="text-5xl font-extrabold tracking-tight tabular-nums">
             {formatTime(secondsLeft)}
@@ -354,7 +548,6 @@ export default function Today() {
           </p>
         </div>
 
-        {/* Progress bar */}
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#f0ece4]">
           <div
             className={`h-full rounded-full transition-all duration-300 ${
@@ -364,7 +557,6 @@ export default function Today() {
           />
         </div>
 
-        {/* Tombol kontrol */}
         <div className="mt-5 flex items-center justify-center gap-3 border-t border-[#eee8df] pt-4">
           <button
             onClick={resetTimer}
@@ -390,7 +582,6 @@ export default function Today() {
           </button>
         </div>
 
-        {/* Tombol menghentikan suara dan notifikasi */}
         {hasActiveCompletionAlert && (
           <button
             onClick={stopCompletionAlert}
@@ -401,7 +592,6 @@ export default function Today() {
           </button>
         )}
 
-        {/* Pesan setelah sesi selesai */}
         {sessionMessage && (
           <p className="mt-4 rounded-lg bg-[#f5f0e7] p-3 text-center text-xs font-semibold text-[#554507]">
             {sessionMessage}
@@ -495,7 +685,9 @@ export default function Today() {
                     )}
 
                     <span className="text-[10px] text-[#77716a]">
-                      {task.status === 'done' ? 'Tuntas' : 'Belum selesai'}
+                      {task.status === 'done'
+                        ? 'Tuntas'
+                        : 'Belum selesai'}
                     </span>
                   </div>
                 </div>
@@ -507,50 +699,298 @@ export default function Today() {
 
       {/* Rutinitas harian */}
       <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-bold">Rutinitas Harian</h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold">Rutinitas Harian</h2>
 
-          <span className="text-[10px] font-semibold text-[#77716a]">
-            {completedHabits} dari {habits.length} lengkap
-          </span>
+            <span className="mt-1 block text-[10px] font-semibold text-[#77716a]">
+              {completedHabits} dari {habits.length} lengkap
+            </span>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={openAddHabit}
+              aria-label="Tambah rutinitas"
+              title="Tambah rutinitas"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border-[1.5px] border-[#252525] bg-[#D9CCFF] shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+            >
+              <Plus size={19} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setHabitActionMode((current) =>
+                  current === 'edit' ? 'normal' : 'edit',
+                )
+              }
+              aria-label="Edit rutinitas"
+              title="Edit rutinitas"
+              className={`flex h-10 w-10 items-center justify-center rounded-xl border-[1.5px] border-[#252525] shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                habitActionMode === 'edit'
+                  ? 'bg-[#ffe69a]'
+                  : 'bg-[#D9CCFF]'
+              }`}
+            >
+              <Pencil size={17} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setHabitActionMode((current) =>
+                  current === 'delete' ? 'normal' : 'delete',
+                )
+              }
+              aria-label="Hapus rutinitas"
+              title="Hapus rutinitas"
+              className={`flex h-10 w-10 items-center justify-center rounded-xl border-[1.5px] border-[#252525] shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                habitActionMode === 'delete'
+                  ? 'bg-[#ffb5a7]'
+                  : 'bg-[#D9CCFF]'
+              }`}
+            >
+              <Trash2 size={17} />
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          {habits.map((habit, index) => {
-            const HabitIcon = habitIcons[index]
+        {habitActionMode !== 'normal' && (
+          <p className="mb-3 rounded-lg bg-[#f5f0e7] px-3 py-2 text-[11px] font-medium text-[#77716a]">
+            {habitActionMode === 'edit'
+              ? 'Pilih rutinitas yang ingin diedit.'
+              : 'Pilih rutinitas yang ingin dihapus.'}
+            <button
+              type="button"
+              onClick={() => setHabitActionMode('normal')}
+              className="ml-2 font-bold text-[#252525] underline"
+            >
+              Batal
+            </button>
+          </p>
+        )}
 
-            return (
-              <button
-                key={habit.id}
-                onClick={() => toggleHabit(habit.id)}
-                className={`flex min-w-0 flex-col rounded-xl border p-3 text-left transition ${
-                  habit.done
-                    ? 'border-[#e9e1d5] bg-[#f5f0e7]'
-                    : 'border-[#252525] bg-white shadow-[2px_2px_0_#252525]'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  {HabitIcon && <HabitIcon size={18} />}
+        {habits.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-[#d8d0c4] px-4 py-8 text-center">
+            <p className="text-sm font-bold">
+              Belum ada rutinitas
+            </p>
+            <p className="mt-1 text-xs text-[#77716a]">
+              Tekan tombol plus untuk menambahkan rutinitas.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {habits.map((habit) => {
+              const iconName =
+                habit.icon || getHabitIconName(habit.title)
 
-                  {habit.done ? (
-                    <CheckCircle2 size={15} />
-                  ) : (
-                    <Circle size={15} />
-                  )}
-                </div>
+              const HabitIcon =
+                habitIconMap[iconName] || CheckCircle2
 
-                <span className="mt-3 truncate text-xs font-bold">
-                  {habit.title}
-                </span>
+              return (
+                <button
+                  key={habit.id}
+                  type="button"
+                  onClick={() => handleHabitClick(habit)}
+                  aria-label={
+                    habitActionMode === 'edit'
+                      ? `Edit ${habit.title}`
+                      : habitActionMode === 'delete'
+                        ? `Hapus ${habit.title}`
+                        : habit.done
+                          ? `Batalkan ${habit.title}`
+                          : `Tandai ${habit.title} selesai`
+                  }
+                  className={`flex min-w-0 flex-col rounded-xl border-[1.5px] p-3 text-left transition-all duration-300 ease-out active:translate-x-0.5 active:translate-y-0.5 ${
+                    habitActionMode === 'edit'
+                      ? 'border-[#252525] bg-[#fff3c4] shadow-[2px_2px_0_#252525]'
+                      : habitActionMode === 'delete'
+                        ? 'border-[#252525] bg-[#ffe0d9] shadow-[2px_2px_0_#252525]'
+                        : habit.done
+                          ? 'border-[#252525] bg-[#CDE8D3] shadow-[2px_2px_0_#252525]'
+                          : 'border-[#252525] bg-white shadow-[2px_2px_0_#252525]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <HabitIcon
+                      size={19}
+                      strokeWidth={2.2}
+                      className="shrink-0"
+                    />
 
-                <span className="mt-1 text-[9px] text-[#77716a]">
-                  {habit.done ? 'Selesai' : habit.detail}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+                    {habitActionMode === 'edit' ? (
+                      <Pencil size={15} />
+                    ) : habitActionMode === 'delete' ? (
+                      <Trash2 size={15} />
+                    ) : habit.done ? (
+                      <CheckCircle2
+                        size={17}
+                        strokeWidth={2.3}
+                      />
+                    ) : (
+                      <Circle size={17} />
+                    )}
+                  </div>
+
+                  <span className="mt-3 truncate text-xs font-bold">
+                    {habit.title}
+                  </span>
+
+                  <span className="mt-1 line-clamp-2 text-[9px] text-[#5f625c]">
+                    {habit.done ? 'Selesai hari ini ✓' : habit.detail}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </section>
+
+      {/* Modal tambah dan edit rutinitas */}
+      {habitModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-black/40 px-5 py-6">
+          <div className="my-auto max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl border-[1.5px] border-[#252525] bg-[#fffaf1] p-5 shadow-[4px_4px_0_#252525]">
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="text-base font-bold">
+                {editingHabitId !== null
+                  ? 'Edit Rutinitas'
+                  : 'Tambah Rutinitas'}
+              </h3>
+
+              <button
+                type="button"
+                onClick={() => setHabitModalOpen(false)}
+                aria-label="Tutup"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f0ece4]"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                saveHabit()
+              }}
+              className="space-y-4"
+            >
+              {/* Pilihan ikon */}
+              <div>
+                <label className="mb-2 block text-xs font-bold">
+                  Pilih ikon rutinitas
+                </label>
+
+                <div className="grid grid-cols-5 gap-2">
+                  {visibleHabitIcons.map((option) => {
+                    const OptionIcon = option.icon
+                    const isSelected =
+                      selectedHabitIcon === option.name
+
+                    return (
+                      <button
+                        key={option.name}
+                        type="button"
+                        onClick={() =>
+                          setSelectedHabitIcon(option.name)
+                        }
+                        title={option.label}
+                        aria-label={`Pilih ikon ${option.label}`}
+                        aria-pressed={isSelected}
+                        className={`flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] transition ${
+                          isSelected
+                            ? 'border-[#252525] bg-[#D9CCFF] shadow-[2px_2px_0_#252525]'
+                            : 'border-[#e3dbcf] bg-white hover:border-[#252525]'
+                        }`}
+                      >
+                        <OptionIcon size={19} />
+                        <span className="max-w-full truncate px-0.5 text-[8px] font-semibold">
+                          {option.label}
+                        </span>
+                      </button>
+                    )
+                  })}
+
+                  {/* Tombol tiga titik selalu menjadi item terakhir */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowAllHabitIcons((current) => !current)
+                    }
+                    aria-expanded={showAllHabitIcons}
+                    aria-label={
+                      showAllHabitIcons
+                        ? 'Tutup ikon tambahan'
+                        : 'Lihat ikon lainnya'
+                    }
+                    title={
+                      showAllHabitIcons
+                        ? 'Tutup ikon tambahan'
+                        : 'Ikon lainnya'
+                    }
+                    className={`flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] border-[#252525] transition ${
+                      showAllHabitIcons
+                        ? 'bg-[#FFE08A] shadow-[2px_2px_0_#252525]'
+                        : 'bg-white hover:bg-[#FFE08A]'
+                    }`}
+                  >
+                    <MoreHorizontal size={22} strokeWidth={2.5} />
+
+                    <span className="text-[9px] font-bold">
+                      {showAllHabitIcons ? 'Tutup' : 'Lainnya'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Nama rutinitas */}
+              <div>
+                <label className="mb-2 block text-xs font-semibold">
+                  Nama rutinitas
+                </label>
+                <input
+                  autoFocus
+                  value={habitTitle}
+                  onChange={(event) =>
+                    setHabitTitle(event.target.value)
+                  }
+                  placeholder="Contoh: Membaca buku"
+                  maxLength={40}
+                  required
+                  className="w-full rounded-xl border border-[#d8d0c4] bg-white px-3 py-3 text-sm outline-none focus:border-[#252525]"
+                />
+              </div>
+
+              {/* Keterangan */}
+              <div>
+                <label className="mb-2 block text-xs font-semibold">
+                  Keterangan
+                </label>
+                <input
+                  value={habitDetail}
+                  onChange={(event) =>
+                    setHabitDetail(event.target.value)
+                  }
+                  placeholder="Contoh: 15 menit setiap hari"
+                  maxLength={70}
+                  className="w-full rounded-xl border border-[#d8d0c4] bg-white px-3 py-3 text-sm outline-none focus:border-[#252525]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="flex w-full items-center justify-center rounded-xl border-[1.5px] border-[#252525] bg-[#D9CCFF] px-4 py-3 text-sm font-bold shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+              >
+                {editingHabitId !== null
+                  ? 'Simpan Perubahan'
+                  : 'Tambah Rutinitas'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Catatan kilat */}
       <section>

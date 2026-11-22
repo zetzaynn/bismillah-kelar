@@ -1,7 +1,11 @@
 
 export type TaskStatus = 'todo' | 'done'
-
 export type TaskPriority = 'Tinggi' | 'Sedang' | 'Rendah'
+
+export interface UserProfile {
+  name: string
+  photo: string | null
+}
 
 export interface Task {
   id: number
@@ -26,6 +30,13 @@ export interface Habit {
   id: number
   title: string
   detail: string
+  icon?: string
+}
+
+export interface WeeklyReflection {
+  good: string
+  improve: string
+  next: string
 }
 
 export interface DailyRecord {
@@ -33,6 +44,7 @@ export interface DailyRecord {
   note: string
   focusSessions: number
   focusMinutes: number
+  reflection?: WeeklyReflection
 }
 
 export interface FocusTimerState {
@@ -59,6 +71,7 @@ export interface AppSettings {
 }
 
 export interface AppData {
+  profile: UserProfile
   tasks: Task[]
   agenda: Record<string, AgendaItem[]>
   habits: Habit[]
@@ -67,25 +80,18 @@ export interface AppData {
 }
 
 export const initialAppData: AppData = {
+  profile: {
+    name: '',
+    photo: null,
+  },
+
   tasks: [],
   agenda: {},
 
   habits: [
-    {
-      id: 1,
-      title: 'Tilawah',
-      detail: 'Rutinitas pagi',
-    },
-    {
-      id: 2,
-      title: 'Minum Air',
-      detail: 'Target harian',
-    },
-    {
-      id: 3,
-      title: 'Jurnal',
-      detail: '15 menit malam',
-    },
+    { id: 1, title: 'Mengaji', detail: 'Rutinitas harian' },
+    { id: 2, title: 'Olahraga', detail: 'Menjaga kebugaran' },
+    { id: 3, title: 'Tidur 8 Jam', detail: 'Menjaga waktu istirahat' },
   ],
 
   dailyRecords: {},
@@ -101,7 +107,7 @@ export const initialAppData: AppData = {
     focusDuration: '25 Menit',
     breakDuration: '5 Menit',
     dailyTarget: '3 - 5 Target',
-    greeting: 'Semoga harimu berkah, Zayy.',
+    greeting: 'Nihao Fineshyt.',
     soundVolume: 1,
   },
 }

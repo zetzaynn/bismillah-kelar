@@ -21,6 +21,12 @@ const weekLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
 
 const habitColors = ['#BDECCF', '#D9CCFF', '#FFE69A', '#FFB5A7', '#BBDFFF']
 
+const emptyReflection = {
+  good: '',
+  improve: '',
+  next: '',
+}
+
 const milestones = [
   {
     title: 'Konsistensi 14 Hari',
@@ -64,18 +70,21 @@ function formatDate(date: Date) {
 
 export default function Progress() {
   const { data, updateDailyRecord } = useAppData()
+  const profileName = data.profile.name.trim() || 'teman'
 
   const [period, setPeriod] = useState<Period>('Pekan Ini')
   const [showPeriod, setShowPeriod] = useState(false)
 
-  const [reflection, setReflection] = useState({
-    good: '',
-    improve: '',
-    next: '',
-  })
+ const weekStartKey = getDateKey(getMonday(new Date()))
 
-  const [editingReflection, setEditingReflection] = useState(false)
-  const [draftReflection, setDraftReflection] = useState(reflection)
+const reflection =
+  data.dailyRecords[weekStartKey]?.reflection ?? emptyReflection
+
+const [editingReflection, setEditingReflection] = useState(false)
+
+const [draftReflection, setDraftReflection] = useState({
+  ...emptyReflection,
+})
 
   const now = new Date()
   const todayKey = getDateKey(now)
@@ -304,10 +313,13 @@ export default function Progress() {
     })
   }
 
-  function saveReflection() {
-    setReflection(draftReflection)
-    setEditingReflection(false)
-  }
+function saveReflection() {
+  updateDailyRecord(weekStartKey, {
+    reflection: { ...draftReflection },
+  })
+
+  setEditingReflection(false)
+}
 
   const milestoneStatus = [
     productiveDays >= 14 ? 'Tercapai' : 'Dalam Proses',
@@ -326,7 +338,7 @@ export default function Progress() {
               Progres
             </h1>
             <p className="mt-1 text-xs text-[#77716a]">
-              Lihat perkembangan kecil yang berarti, Zayy.
+              Lihat perkembangan kecil yang berarti, {profileName}.
             </p>
           </div>
 
@@ -722,9 +734,9 @@ export default function Progress() {
 
           <button
             onClick={() => {
-              setDraftReflection(reflection)
-              setEditingReflection(true)
-            }}
+  setDraftReflection({ ...reflection })
+  setEditingReflection(true)
+}}
             className="flex w-full items-center justify-end gap-2 border-t border-[#eee8df] pt-3 text-xs font-bold text-[#625884]"
           >
             <Pencil size={13} />

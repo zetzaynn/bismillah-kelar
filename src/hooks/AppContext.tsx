@@ -10,8 +10,10 @@ import {
 
 import {
   type AppData,
+  type UserProfile,
   type Task,
   type AgendaItem,
+  type Habit,
   type AppSettings,
   type DailyRecord,
   type FocusTimerState,
@@ -26,9 +28,20 @@ import {
 import {
   playTimerEndSound,
   stopTimerEndSound,
+  saveProfilePhoto,
+  getProfilePhoto,
+  deleteProfilePhoto,
 } from '../lib/audioStorage'
 
 const FOCUS_TIMER_STORAGE_KEY = 'bismillah-kelar-focus-timer'
+
+const MAX_PROFILE_PHOTO_SIZE = 2 * 1024 * 1024
+
+const ALLOWED_PROFILE_PHOTO_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]
 
 function getMinutes(value: string, fallback: number) {
   const parsed = Number.parseInt(value, 10)
@@ -86,9 +99,31 @@ function getTodayKey() {
   return `${year}-${month}-${day}`
 }
 
-// Suara bawaan jika MP3 belum tersedia atau gagal diputar
+// Mengelola suara bawaan agar bisa dihentikan kapan saja.
+let fallbackAudioContext: AudioContext | null = null
+let fallbackAudioTimeout: number | null = null
+
+function stopTimerSound() {
+  if (fallbackAudioTimeout !== null) {
+    window.clearTimeout(fallbackAudioTimeout)
+    fallbackAudioTimeout = null
+  }
+
+  if (fallbackAudioContext) {
+    const context = fallbackAudioContext
+    fallbackAudioContext = null
+
+    if (context.state !== 'closed') {
+      void context.close().catch(() => {})
+    }
+  }
+}
+
+// Suara bawaan jika MP3 belum tersedia atau gagal diputar.
 function playTimerSound() {
   try {
+    stopTimerSound()
+
     const AudioContextClass =
       window.AudioContext ||
       (
@@ -100,6 +135,7 @@ function playTimerSound() {
     if (!AudioContextClass) return
 
     const audioContext = new AudioContextClass()
+    fallbackAudioContext = audioContext
 
     const playTone = (
       frequency: number,
@@ -139,15 +175,23 @@ function playTimerSound() {
     playTone(880, startTime + 0.25, 0.25)
     playTone(1046, startTime + 0.55, 0.4)
 
-    window.setTimeout(() => {
-      void audioContext.close()
+    fallbackAudioTimeout = window.setTimeout(() => {
+      if (fallbackAudioContext === audioContext) {
+        fallbackAudioContext = null
+      }
+
+      fallbackAudioTimeout = null
+
+      if (audioContext.state !== 'closed') {
+        void audioContext.close().catch(() => {})
+      }
     }, 1500)
   } catch (error) {
     console.warn('Suara timer tidak dapat diputar:', error)
   }
 }
 
-// Notifikasi browser
+// Notifikasi browser.
 function sendFocusNotification(title: string, body: string) {
   if (
     typeof window === 'undefined' ||
@@ -168,6 +212,11 @@ function sendFocusNotification(title: string, body: string) {
 interface AppContextType {
   data: AppData
 
+  profilePhotoUrl: string | null
+  updateProfile: (updates: Pick<Partial<UserProfile>, 'name'>) => void
+  updateProfilePhoto: (file: File) => Promise<void>
+  removeProfilePhoto: () => Promise<void>
+
   focusTimer: FocusTimerState
   startFocusTimer: () => void
   pauseFocusTimer: () => void
@@ -179,6 +228,9 @@ interface AppContextType {
   addTask: (task: Task) => void
   updateTask: (id: number, updates: Partial<Task>) => void
   deleteTask: (id: number) => void
+  addHabit: (habit: Omit<Habit, 'id'>) => void
+  updateHabit: (id: number, updates: Partial<Habit>) => void
+  deleteHabit: (id: number) => void
 
   addAgenda: (date: string, item: AgendaItem) => void
   updateAgenda: (
@@ -202,6 +254,10 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 export function AppProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(() => getAppData())
 
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null)
+
+  const profilePhotoUrlRef = useRef<string | null>(null)
+
   const [focusTimer, setFocusTimer] = useState<FocusTimerState>(() =>
     getInitialFocusTimer(data.settings.focusDuration),
   )
@@ -214,13 +270,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const completedTimerRef = useRef<number | null>(null)
   const activeNotificationRef = useRef<Notification | null>(null)
+  const completionPlaybackIdRef = useRef(0)
 
   const hasActiveCompletionAlert =
     isCompletionSoundPlaying || isCompletionNotificationActive
 
+  // Simpan data utama aplikasi.
   useEffect(() => {
     saveAppData(data)
   }, [data])
+
+  // Memuat foto profil dari IndexedDB saat aplikasi dibuka.
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadProfilePhoto() {
+      try {
+        const photo = await getProfilePhoto()
+
+        if (!photo || cancelled) return
+
+        const url = URL.createObjectURL(photo)
+
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+
+        profilePhotoUrlRef.current = url
+        setProfilePhotoUrl(url)
+
+        setData((current) => ({
+          ...current,
+          profile: {
+            ...current.profile,
+            photo: 'indexeddb',
+          },
+        }))
+      } catch (error) {
+        console.error('Gagal memuat foto profil:', error)
+      }
+    }
+
+    void loadProfilePhoto()
+
+    return () => {
+      cancelled = true
+
+      if (profilePhotoUrlRef.current) {
+        URL.revokeObjectURL(profilePhotoUrlRef.current)
+        profilePhotoUrlRef.current = null
+      }
+    }
+  }, [])
 
   // Simpan timer secara terpisah agar tidak hilang saat berpindah halaman.
   useEffect(() => {
@@ -230,9 +332,82 @@ export function AppProvider({ children }: { children: ReactNode }) {
     )
   }, [focusTimer])
 
+  // Mengganti URL foto profil yang sedang ditampilkan.
+  function setProfilePhoto(blob: Blob | null) {
+    if (profilePhotoUrlRef.current) {
+      URL.revokeObjectURL(profilePhotoUrlRef.current)
+      profilePhotoUrlRef.current = null
+    }
+
+    if (!blob) {
+      setProfilePhotoUrl(null)
+      return
+    }
+
+    const url = URL.createObjectURL(blob)
+
+    profilePhotoUrlRef.current = url
+    setProfilePhotoUrl(url)
+  }
+
+  // Memperbarui nama profil.
+  function updateProfile(
+    updates: Pick<Partial<UserProfile>, 'name'>,
+  ) {
+    setData((current) => ({
+      ...current,
+      profile: {
+        ...current.profile,
+        ...updates,
+      },
+    }))
+  }
+
+  // Menyimpan foto profil ke IndexedDB.
+  async function updateProfilePhoto(file: File) {
+    if (!ALLOWED_PROFILE_PHOTO_TYPES.includes(file.type)) {
+      throw new Error('Format foto harus JPG, PNG, atau WebP.')
+    }
+
+    if (file.size > MAX_PROFILE_PHOTO_SIZE) {
+      throw new Error('Ukuran foto maksimal 2 MB.')
+    }
+
+    await saveProfilePhoto(file)
+
+    setProfilePhoto(file)
+
+    setData((current) => ({
+      ...current,
+      profile: {
+        ...current.profile,
+        photo: 'indexeddb',
+      },
+    }))
+  }
+
+  // Menghapus foto profil dari IndexedDB.
+  async function removeProfilePhoto() {
+    await deleteProfilePhoto()
+
+    setProfilePhoto(null)
+
+    setData((current) => ({
+      ...current,
+      profile: {
+        ...current.profile,
+        photo: null,
+      },
+    }))
+  }
+
   // Menghentikan suara dan menutup notifikasi timer.
   function stopCompletionAlert() {
+    // Batalkan pemutaran yang mungkin masih menunggu data MP3.
+    completionPlaybackIdRef.current += 1
+
     stopTimerEndSound()
+    stopTimerSound()
     setIsCompletionSoundPlaying(false)
 
     if (activeNotificationRef.current) {
@@ -270,16 +445,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Memutar MP3 pribadi, lalu memakai suara bawaan jika gagal.
   async function playCompletionSound(volume: number) {
+    const playbackId = ++completionPlaybackIdRef.current
+
+    stopTimerSound()
+
     try {
       const played = await playTimerEndSound(
         volume,
         setIsCompletionSoundPlaying,
       )
 
+      // Jangan putar suara cadangan jika proses sudah dibatalkan.
+      if (playbackId !== completionPlaybackIdRef.current) {
+        return
+      }
+
       if (!played) {
         playTimerSound()
       }
     } catch (error) {
+      if (playbackId !== completionPlaybackIdRef.current) {
+        return
+      }
+
       console.warn('Gagal memutar MP3 timer:', error)
       playTimerSound()
     }
@@ -301,7 +489,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (completedTimerRef.current === timerEndsAt) return
       completedTimerRef.current = timerEndsAt
 
-      // Putar MP3 pribadi atau suara bawaan.
       void playCompletionSound(data.settings.soundVolume ?? 1)
 
       if (timerMode === 'focus') {
@@ -383,6 +570,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ])
 
   function startFocusTimer() {
+    // Hentikan alarm dan notifikasi dari sesi sebelumnya.
+    stopCompletionAlert()
+
     setFocusTimer((current) => {
       const isResuming = current.status === 'paused'
 
@@ -455,6 +645,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function resetFocusTimer() {
+    stopCompletionAlert()
+
     setFocusTimer((current) => {
       const minutes = getMinutes(
         current.mode === 'focus'
@@ -493,6 +685,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setData((current) => ({
       ...current,
       tasks: current.tasks.filter((task) => task.id !== id),
+    }))
+  }
+
+    // Menambahkan rutinitas baru.
+  function addHabit(habit: Omit<Habit, 'id'>) {
+    setData((current) => {
+      const nextId =
+        current.habits.length > 0
+          ? Math.max(...current.habits.map((item) => item.id)) + 1
+          : 1
+
+      return {
+        ...current,
+        habits: [
+          ...current.habits,
+          {
+            ...habit,
+            id: nextId,
+          },
+        ],
+      }
+    })
+  }
+
+  // Mengubah rutinitas.
+  function updateHabit(id: number, updates: Partial<Habit>) {
+    setData((current) => ({
+      ...current,
+      habits: current.habits.map((habit) =>
+        habit.id === id
+          ? { ...habit, ...updates, id }
+          : habit,
+      ),
+    }))
+  }
+
+  // Menghapus rutinitas.
+  function deleteHabit(id: number) {
+    setData((current) => ({
+      ...current,
+      habits: current.habits.filter((habit) => habit.id !== id),
     }))
   }
 
@@ -585,18 +818,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider
       value={{
         data,
+
+        profilePhotoUrl,
+        updateProfile,
+        updateProfilePhoto,
+        removeProfilePhoto,
+
         focusTimer,
         startFocusTimer,
         pauseFocusTimer,
         resetFocusTimer,
+
         hasActiveCompletionAlert,
         stopCompletionAlert,
+
         addTask,
         updateTask,
         deleteTask,
+
+        addHabit,
+        updateHabit,
+        deleteHabit,
+
         addAgenda,
         updateAgenda,
         deleteAgenda,
+
         updateDailyRecord,
         updateSettings,
         replaceData,

@@ -7,6 +7,8 @@ import {
   type ChangeEvent,
 } from 'react'
 
+import { createPortal } from 'react-dom'
+
 import {
   UserRound,
   Languages,
@@ -155,6 +157,10 @@ type InfoKey =
   | 'cache'
   | 'feedback'
 
+type MoreProps = {
+  onEditProfile: () => void
+}
+
 const infoContent: Record<
   InfoKey,
   { title: string; description: string; icon: ElementType }
@@ -269,8 +275,15 @@ function isValidBackup(value: unknown): value is AppData {
   return validAgenda
 }
 
-export default function More() {
-  const { data, updateSettings, replaceData } = useAppData()
+export default function More({ onEditProfile }: MoreProps) {
+  const {
+    data,
+    profilePhotoUrl,
+    updateSettings,
+    replaceData,
+  } = useAppData()
+
+  const profileName = data.profile.name.trim() || 'Teman'
 
   const {
     notifications,
@@ -643,19 +656,23 @@ export default function More() {
     showNotice('Data berhasil dipulihkan dari backup.')
   }
 
-  const sendFeedback = () => {
-    if (!feedbackText.trim()) return
+const sendFeedback = () => {
+  const message = feedbackText.trim()
 
-    const subject = encodeURIComponent(
-      'Umpan Balik Bismillah Kelar',
-    )
-    const body = encodeURIComponent(feedbackText.trim())
+  if (!message) return
 
-    window.location.href = `mailto:?subject=${subject}&body=${body}`
-    setActiveInfo(null)
-    setFeedbackText('')
-  }
+  const recipient = 'zetzayn@students.unnes.ac.id'
+  const subject = encodeURIComponent(
+    'Umpan Balik Bismillah Kelar',
+  )
+  const body = encodeURIComponent(message)
 
+  window.location.href =
+    `mailto:${recipient}?subject=${subject}&body=${body}`
+
+  setActiveInfo(null)
+  setFeedbackText('')
+}
   return (
     <div className="space-y-7 pb-5">
       {notice && (
@@ -683,17 +700,32 @@ export default function More() {
       )}
 
       {/* PROFILE */}
-      <section className="rounded-2xl border border-[#252525] bg-[#D9CCFF] p-4 shadow-[3px_3px_0px_#252525]">
+      <button
+        type="button"
+        onClick={onEditProfile}
+        aria-label="Edit profil pengguna"
+        className="block w-full rounded-2xl border border-[#252525] bg-[#D9CCFF] p-4 text-left shadow-[3px_3px_0px_#252525] transition hover:brightness-[0.98] active:translate-y-0.5 active:shadow-none"
+      >
         <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#252525] bg-[#fffaf1]">
-            <UserRound size={27} />
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[#252525] bg-[#fffaf1]">
+            {profilePhotoUrl ? (
+              <img
+                src={profilePhotoUrl}
+                alt={`Foto profil ${profileName}`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <UserRound size={27} />
+            )}
           </div>
 
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-[#51476b]">
               Ruang produktivitas pribadi
             </p>
-            <h2 className="text-xl font-extrabold">Zayy</h2>
+            <h2 className="truncate text-xl font-extrabold">
+              {profileName}
+            </h2>
             <p className="text-xs text-[#51476b]">
               Satu langkah kecil setiap hari.
             </p>
@@ -708,7 +740,7 @@ export default function More() {
           </p>
           <p className="text-sm font-bold">{greeting}</p>
         </div>
-      </section>
+      </button>
 
       {/* PREFERENCES */}
       <section>
@@ -790,7 +822,7 @@ export default function More() {
           <ToggleItem
             icon={Heart}
             title="Pengingat Kebiasaan"
-            description="Tilawah, minum air, peregangan"
+            description="Mengaji, olahraga, tidur 8 jam, dan kebiasaan lainnya"
             checked={notifications.habits}
             onChange={() => toggleNotification('habits')}
           />
@@ -1135,7 +1167,7 @@ export default function More() {
         </div>
 
         <p className="text-xs text-[#999188]">
-          Ditenagai ketekunan & doa Zayy.
+          Ditenagai ketekunan & doa {profileName}.
         </p>
 
         <p className="text-[10px] text-[#aaa198]">
@@ -1337,86 +1369,99 @@ export default function More() {
       )}
 
       {/* INFORMATION MODAL */}
-      {activeInfo && (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-5 py-6"
-          onClick={() => setActiveInfo(null)}
-        >
+      {activeInfo &&
+        createPortal(
           <div
-            role="dialog"
-            aria-modal="true"
-            className="w-full max-w-sm rounded-2xl border border-[#252525] bg-[#fffaf1] p-5 shadow-[4px_4px_0px_#252525]"
-            onClick={(event) => event.stopPropagation()}
+            className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/40 px-5 py-6"
+            onClick={() => setActiveInfo(null)}
           >
-            <div className="mb-4 flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eee8df]">
-                  {(() => {
-                    const Icon = infoContent[activeInfo].icon
-                    return <Icon size={20} />
-                  })()}
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full max-w-sm rounded-2xl border border-[#252525] bg-[#fffaf1] p-5 shadow-[4px_4px_0px_#252525]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eee8df]">
+                    {(() => {
+                      const Icon = infoContent[activeInfo].icon
+                      return <Icon size={20} />
+                    })()}
+                  </div>
+                  <h3 className="font-extrabold">
+                    {infoContent[activeInfo].title}
+                  </h3>
                 </div>
-                <h3 className="font-extrabold">
-                  {infoContent[activeInfo].title}
-                </h3>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => setActiveInfo(null)}
-                aria-label="Tutup"
-              >
-                <X size={19} />
-              </button>
-            </div>
-
-            <p className="text-sm leading-relaxed text-[#6f675f]">
-              {infoContent[activeInfo].description}
-            </p>
-
-            {activeInfo === 'feedback' && (
-              <div className="mt-4">
-                <label className="mb-2 block text-xs font-bold">
-                  Tulis masukanmu
-                </label>
-                <textarea
-                  value={feedbackText}
-                  onChange={(event) => setFeedbackText(event.target.value)}
-                  rows={4}
-                  maxLength={1500}
-                  placeholder="Ceritakan saran, ide, atau kendala yang kamu temukan..."
-                  className="w-full resize-none rounded-xl border border-[#d8d0c5] bg-white p-3 text-sm outline-none focus:border-[#252525]"
-                />
-                <p className="mt-1 text-right text-[10px] text-[#999188]">
-                  {feedbackText.length}/1500
-                </p>
-              </div>
-            )}
-
-            <div className="mt-5 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveInfo(null)}
-                className="flex-1 rounded-xl border border-[#252525] px-3 py-2.5 text-sm font-bold"
-              >
-                Tutup
-              </button>
-
-              {activeInfo === 'feedback' && (
                 <button
                   type="button"
-                  onClick={sendFeedback}
-                  disabled={!feedbackText.trim()}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#252525] bg-[#FFE69A] px-3 py-2.5 text-sm font-bold disabled:opacity-50"
+                  onClick={() => setActiveInfo(null)}
+                  aria-label="Tutup"
                 >
-                  <Mail size={16} />
-                  Kirim
+                  <X size={19} />
                 </button>
-              )}
+              </div>
+
+              <p className="text-sm leading-relaxed text-[#6f675f]">
+                {infoContent[activeInfo].description}
+              </p>
+
+              {activeInfo === 'feedback' && (
+  <div className="mt-4">
+    <div className="mb-4 rounded-xl border border-[#252525]/20 bg-[#eee8df] p-3">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-[#888078]">
+        Dikirim ke
+      </p>
+      <p className="mt-1 break-all text-sm font-bold">
+        zetzayn@students.unnes.ac.id
+      </p>
+    </div>
+
+    <label className="mb-2 block text-xs font-bold">
+      Tulis masukanmu
+    </label>
+
+    <textarea
+      value={feedbackText}
+      onChange={(event) => setFeedbackText(event.target.value)}
+      rows={4}
+      maxLength={1500}
+      placeholder="Ceritakan saran, ide, atau kendala yang kamu temukan..."
+      className="w-full resize-none rounded-xl border border-[#d8d0c5] bg-white p-3 text-sm outline-none focus:border-[#252525]"
+    />
+
+    <p className="mt-1 text-right text-[10px] text-[#999188]">
+      {feedbackText.length}/1500
+    </p>
+  </div>
+)}
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveInfo(null)}
+                  className="flex-1 rounded-xl border border-[#252525] px-3 py-2.5 text-sm font-bold"
+                >
+                  Tutup
+                </button>
+
+                {activeInfo === 'feedback' && (
+                  <button
+                    type="button"
+                    onClick={sendFeedback}
+                    disabled={!feedbackText.trim()}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#252525] bg-[#FFE69A] px-3 py-2.5 text-sm font-bold disabled:opacity-50"
+                  >
+                    <Mail size={16} />
+                    Kirim
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
 
       {/* RESTORE CONFIRMATION */}
       {showRestoreConfirm && (

@@ -178,10 +178,6 @@ export default function Calendar() {
     0,
   )
 
-  const completedActivities = Object.values(agenda)
-    .flat()
-    .filter((item) => item.done).length
-
   function changeMonth(amount: number) {
     setDisplayMonth((current) =>
       new Date(
@@ -309,16 +305,25 @@ export default function Calendar() {
     setDeleteTarget(null)
   }
 
+  // Buat tujuh tanggal berdasarkan pekan yang dipilih.
+  // Tidak bergantung pada rentang 42 hari kalender bulanan.
   const mondayOffset = (selected.getDay() + 6) % 7
+
   const weekStart = new Date(selected)
   weekStart.setDate(selected.getDate() - mondayOffset)
 
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 7)
+  const weekDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart)
+    date.setDate(weekStart.getDate() + index)
 
-  const weekDays = days.filter(
-    (day) => day.date >= weekStart && day.date < weekEnd,
-  )
+    return {
+      date,
+      key: dateKey(date),
+      number: date.getDate(),
+      currentMonth: date.getMonth() === displayMonth.getMonth(),
+      today: dateKey(date) === todayKey,
+    }
+  })
 
   const visibleDays = view === 'Pekan' ? weekDays : days
 
@@ -348,60 +353,66 @@ export default function Calendar() {
           </p>
         </div>
 
-        <div className="flex items-center justify-between gap-2">
-          <button
-            onClick={() => {
-              setDisplayMonth(new Date(now.getFullYear(), now.getMonth(), 1))
-              setSelectedDate(todayKey)
-            }}
-            className="rounded-lg bg-[#f1ede6] px-3 py-2 text-[10px] font-bold"
-          >
-            Hari Ini
-          </button>
+        {/* Navigasi bulan */}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex justify-start">
+            <button
+              onClick={() => {
+                setDisplayMonth(
+                  new Date(now.getFullYear(), now.getMonth(), 1),
+                )
+                setSelectedDate(todayKey)
+              }}
+              className="rounded-lg border border-[#e4ddd2] bg-[#f1ede6] px-3 py-2 text-[10px] font-bold transition hover:bg-[#e9e2d7]"
+            >
+              Hari Ini
+            </button>
+          </div>
 
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold">
+          <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
+            <h2 className="text-base font-extrabold sm:text-lg">
               {monthNames[displayMonth.getMonth()]} {displayMonth.getFullYear()}
             </h2>
             <ChevronDown size={17} className="text-[#77716a]" />
           </div>
 
-          <div className="flex gap-1">
+          <div className="flex justify-end gap-2">
             <button
               onClick={() => changeMonth(-1)}
               aria-label="Bulan sebelumnya"
-              className="rounded-lg bg-[#f1ede6] p-2"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#252525] bg-[#ffe69a] shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
             >
-              <ChevronLeft size={17} />
+              <ChevronLeft size={20} strokeWidth={2.8} />
             </button>
 
             <button
               onClick={() => changeMonth(1)}
               aria-label="Bulan berikutnya"
-              className="rounded-lg bg-[#f1ede6] p-2"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#252525] bg-[#ffe69a] shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
             >
-              <ChevronRight size={17} />
+              <ChevronRight size={20} strokeWidth={2.8} />
             </button>
           </div>
         </div>
       </section>
 
       {/* Ringkasan dan pilihan tampilan */}
-      <section className="flex flex-wrap items-center justify-between gap-3">
-        <div className="rounded-full bg-[#f1ede6] px-3 py-2 text-[10px] font-semibold text-[#77716a]">
-          <span className="mr-1 text-[#b19ae9]">●</span>
+      <section className="space-y-3">
+        <div className="inline-flex rounded-full border border-[#e5ddd1] bg-[#f1ede6] px-3 py-2 text-[10px] font-semibold text-[#625b52]">
+          <span className="mr-1.5 text-[#9b7bd8]">●</span>
           {totalActivities} aktivitas tersimpan
         </div>
 
-        <div className="flex rounded-xl bg-[#ece8e0] p-1">
+        {/* Tab full-width */}
+        <div className="grid w-full grid-cols-3 gap-1 rounded-xl border border-[#e5ddd1] bg-[#ece8e0] p-1">
           {(['Bulan', 'Pekan', 'Agenda'] as CalendarView[]).map((item) => (
             <button
               key={item}
               onClick={() => setView(item)}
-              className={`rounded-lg px-3 py-2 text-[10px] font-bold transition ${
+              className={`min-w-0 rounded-lg px-2 py-3 text-xs font-bold transition ${
                 view === item
-                  ? 'border border-[#252525] bg-[#ffe69a] shadow-[2px_2px_0_#252525]'
-                  : 'text-[#77716a]'
+                  ? 'border border-[#252525] bg-[#ffe69a] text-[#252525] shadow-[2px_2px_0_#252525]'
+                  : 'text-[#77716a] hover:bg-white/60'
               }`}
             >
               {item}
@@ -412,13 +423,15 @@ export default function Calendar() {
 
       {/* Kalender bulanan dan pekanan */}
       {view !== 'Agenda' && (
-        <section className="rounded-xl bg-white p-3 shadow-sm">
-          <div className="grid grid-cols-7 gap-1 pb-3 text-center">
+        <section className="rounded-xl border border-[#e9e2d7] bg-white p-3 shadow-sm">
+
+          {/* Header nama hari */}
+          <div className="mb-3 grid grid-cols-7 overflow-hidden rounded-lg border border-[#e5ddd1] bg-[#f5f0e7]">
             {weekdayNames.map((day, index) => (
               <div
                 key={day}
-                className={`py-2 text-[10px] font-bold uppercase ${
-                  index === 6 ? 'text-[#ba1a1a]' : 'text-[#77716a]'
+                className={`border-r border-[#e5ddd1] py-2.5 text-center text-[10px] font-extrabold uppercase tracking-wide last:border-r-0 ${
+                  index === 6 ? 'bg-[#fcebea] text-[#ba1a1a]' : 'text-[#514b43]'
                 }`}
               >
                 {day}
@@ -468,7 +481,7 @@ export default function Calendar() {
                       ? 'border border-[#252525] bg-[#ffe69a] font-bold shadow-[2px_2px_0_#252525]'
                       : day.today
                         ? 'border border-[#d9ccff] bg-[#f5f0ff]'
-                        : 'hover:bg-[#f5f0e7]'
+                        : 'border border-transparent hover:bg-[#f5f0e7]'
                   } ${
                     !day.currentMonth && view === 'Bulan'
                       ? 'opacity-30'
@@ -739,22 +752,6 @@ export default function Calendar() {
           </div>
         </div>
       </section>
-
-      {/* Ringkasan seluruh aktivitas */}
-      <div className="rounded-xl bg-[#f5f0e7] px-3 py-3 text-[10px] text-[#77716a]">
-        <div className="flex justify-between">
-          <span>Total aktivitas tersimpan</span>
-          <span className="font-bold text-[#252525]">
-            {totalActivities}
-          </span>
-        </div>
-        <div className="mt-1 flex justify-between">
-          <span>Aktivitas selesai</span>
-          <span className="font-bold text-[#252525]">
-            {completedActivities}
-          </span>
-        </div>
-      </div>
 
       {/* Tombol tambah jadwal */}
       <button
