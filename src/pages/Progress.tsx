@@ -801,7 +801,7 @@ export default function Progress() {
           </h2>
         </div>
 
-        <div className="space-y-4 rounded-xl border-2 border-[#252525] bg-white p-4 shadow-[3px_3px_0_#252525]">
+        <div className="space-y-3.5 rounded-xl border-2 border-[#252525] bg-white p-4 shadow-[3px_3px_0_#252525]">
           {[
             {
               key: 'good' as const,
@@ -818,8 +818,15 @@ export default function Progress() {
               title: 'Fokus berikutnya',
               badgeClass: 'bg-[#FFE69A] text-[#252525]',
             },
-          ].map((item) => (
-            <div key={item.key} className="space-y-1.5">
+          ].map((item, index, array) => (
+            <div
+              key={item.key}
+              className={`space-y-1.5 ${
+                index < array.length - 1
+                  ? 'border-b border-[#eee8df] pb-3.5'
+                  : ''
+              }`}
+            >
               <span
                 className={`inline-block rounded-lg border-[1.5px] border-[#252525] px-3 py-1 text-xs font-extrabold shadow-[1.5px_1.5px_0_#252525] ${item.badgeClass}`}
               >
@@ -831,7 +838,7 @@ export default function Progress() {
             </div>
           ))}
 
-          <div className="border-t border-[#eee8df] pt-3">
+          <div className="border-t border-[#eee8df] pt-3.5">
             <button
               type="button"
               onClick={() => {
