@@ -246,7 +246,6 @@ function App() {
         transitionStartTimer = window.setTimeout(() => {
           setSplashExiting(true)
 
-          // Pengguna baru mengisi form identitas terlebih dahulu sebelum sapaan beranda
           if (isOnboardingRef.current) {
             setLaunchStage('app')
           } else {
@@ -338,7 +337,6 @@ function App() {
     }
   }, [selectedPhoto])
 
-  // Router Global Efek Suara Interaksi (3 Jenis: click, check, success)
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
       const target = event.target
@@ -532,7 +530,6 @@ function App() {
     setShowNotifications(false)
   }
 
-  // Bebas batas ukuran file (penyimpanan menggunakan storage lokal IndexedDB)
   const handlePhotoChange = (
     event: ChangeEvent<HTMLInputElement>,
   ) => {
@@ -588,7 +585,6 @@ function App() {
       setSelectedPhoto(null)
       setShowProfile(false)
 
-      // Setelah form identitas awal selesai diisi, tampilkan sapaan beranda lalu masuk ke Hari Ini
       if (wasOnboarding) {
         setGreetingCountdown(3)
         setGreetingExiting(false)
@@ -1081,10 +1077,10 @@ function App() {
               type="button"
               onClick={enterMainApp}
               disabled={greetingExiting}
-              className="mx-auto mt-5 flex w-[65%] items-center justify-center gap-1.5 rounded-xl border-2 border-[#252525] bg-[#252525] px-3.5 py-2.5 text-xs font-extrabold text-[#FFE69A] shadow-[3px_3px_0_#fffaf1] transition hover:bg-[#383838] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-70"
+              className="mx-auto mt-5 flex w-[65%] items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border-2 border-[#252525] bg-[#252525] px-3.5 py-2.5 text-[11px] font-extrabold text-[#FFE69A] shadow-[3px_3px_0_#fffaf1] transition hover:bg-[#383838] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-70"
             >
               <span>Masuk ke Hari Ini</span>
-              <ArrowRight size={15} />
+              <ArrowRight size={14} className="shrink-0" />
             </button>
 
             <div className="mt-3.5 flex items-center justify-center gap-2 text-xs font-extrabold text-[#4a3f6b]">
@@ -1155,7 +1151,6 @@ function App() {
                   onSubmit={handleSaveProfile}
                   className="space-y-2.5 rounded-2xl border-2 border-[#252525] bg-[#FFE69A] px-4 py-3.5 shadow-[4px_4px_0_#252525]"
                 >
-                  {/* 1. Foto Profil (2x Lipat Seperti Sapaan Beranda) */}
                   <div className="flex flex-col items-center text-center">
                     <label className="group flex cursor-pointer flex-col items-center gap-1.5">
                       <span className="flex h-40 w-40 items-center justify-center overflow-hidden rounded-3xl border-2 border-[#252525] bg-[#fffaf1] shadow-[3px_3px_0_#252525] transition group-hover:scale-[1.01]">
@@ -1184,7 +1179,6 @@ function App() {
                     </label>
                   </div>
 
-                  {/* 2 & 3. Nama Panggilan & Sapaan Beranda (Jarak Rapat & Ringkas) */}
                   <div className="space-y-1.5">
                     <div className="text-left">
                       <label
@@ -1253,7 +1247,6 @@ function App() {
                     </p>
                   )}
 
-                  {/* Tombol Konfirmasi (Desain Sama Persis Sapaan Beranda, Size 65%) */}
                   <button
                     type="submit"
                     disabled={isSavingProfile}
@@ -1376,7 +1369,6 @@ function App() {
         </div>
       )}
 
-      {/* Modal Profil Pengguna + Edit Sapaan Beranda */}
       {showProfile && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-5 py-6 backdrop-blur-sm"
@@ -1532,7 +1524,6 @@ function App() {
         </div>
       )}
 
-      {/* Panel Pengingat & Notifikasi Hari Ini */}
       {showNotifications && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-sm"

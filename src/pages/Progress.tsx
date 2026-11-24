@@ -444,7 +444,7 @@ export default function Progress() {
           </span>
         </div>
 
-        {/* Ringkasan Capaian (Header di luar bingkai kiri atas konsisten dengan fitur lainnya) */}
+        {/* Ringkasan Capaian */}
         <div className="space-y-3 pt-1">
           <div>
             <h2 className="text-base font-bold">
@@ -642,7 +642,7 @@ export default function Progress() {
             </span>
           </div>
 
-          <div className="mb-4 h-2 overflow-hidden rounded-full bg-[#f1ede6]">
+          <div className="mb-4 h-2.5 overflow-hidden rounded-full border border-[#252525] bg-white">
             <div
               className="h-full rounded-full bg-[#4ADE80] transition-all"
               style={{ width: `${habitPercentage}%` }}
@@ -742,7 +742,11 @@ export default function Progress() {
                 key={item.title}
                 type="button"
                 onClick={() => setSelectedMilestoneIndex(index)}
-                className="flex w-full items-center gap-3 rounded-xl border-2 border-[#252525] bg-white p-3.5 text-left shadow-[3px_3px_0_#252525] transition hover:bg-[#fffdf7] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                className={`flex w-full items-center gap-3 rounded-xl border-2 border-[#252525] p-3.5 text-left shadow-[3px_3px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                  achieved
+                    ? 'bg-[#4ADE80] hover:bg-[#3cd475]'
+                    : 'bg-white hover:bg-[#fffdf7]'
+                }`}
               >
                 <div
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#252525] shadow-[2px_2px_0_#252525]"
@@ -760,7 +764,7 @@ export default function Progress() {
                     <span
                       className={`inline-block whitespace-nowrap rounded-full border border-[#252525] px-2.5 py-0.5 text-[10px] font-extrabold ${
                         achieved
-                          ? 'bg-[#4ADE80] text-[#14532d]'
+                          ? 'bg-[#CDE8D3] text-[#1e4620]'
                           : 'bg-[#FB923C] text-[#252525]'
                       }`}
                     >
@@ -768,12 +772,21 @@ export default function Progress() {
                     </span>
                   </div>
 
-                  <p className="mt-1.5 text-xs leading-relaxed text-[#77716a]">
+                  <p
+                    className={`mt-1.5 text-xs leading-relaxed ${
+                      achieved ? 'text-[#14532d]' : 'text-[#77716a]'
+                    }`}
+                  >
                     {item.description}
                   </p>
                 </div>
 
-                <ChevronRight size={16} className="shrink-0 text-[#8a8278]" />
+                <ChevronRight
+                  size={16}
+                  className={`shrink-0 ${
+                    achieved ? 'text-[#14532d]' : 'text-[#8a8278]'
+                  }`}
+                />
               </button>
             )
           })}
@@ -866,7 +879,7 @@ export default function Progress() {
                     <span
                       className={`mt-1 inline-block rounded-full border border-[#252525] px-2.5 py-0.5 text-[10px] font-extrabold ${
                         activeMilestone.status === 'Tercapai'
-                          ? 'bg-[#4ADE80] text-[#14532d]'
+                          ? 'bg-[#CDE8D3] text-[#1e4620]'
                           : 'bg-[#FB923C] text-[#252525]'
                       }`}
                     >

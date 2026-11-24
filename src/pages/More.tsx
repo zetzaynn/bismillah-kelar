@@ -303,7 +303,7 @@ const infoContent: Record<
     icon: Clock3,
   },
   version: {
-    title: 'Bismillah Kelar v0.9.5',
+    title: 'Bismillah Kelar v1.2.0',
     description:
       'Bismillah Kelar masih dalam tahap pengembangan. Aplikasi ini dibangun untuk membantu mengelola target dan tugas, agenda, fokus, dan progres harian dalam satu ruang produktivitas pribadi.',
     icon: Info,
@@ -1387,7 +1387,7 @@ export default function More({
             icon={Info}
             title="Versi Aplikasi"
             description="Versi pengembangan"
-            value="v0.9.5"
+            value="v1.2.0"
             onClick={() => setActiveInfo('version')}
           />
 

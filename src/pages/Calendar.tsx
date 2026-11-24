@@ -74,10 +74,28 @@ function getEventLabel(type: string) {
   return 'Hari peringatan'
 }
 
-function getEventBackground(type: string) {
-  if (type === 'libur') return 'border-red-100 bg-red-50'
-  if (type === 'cuti') return 'border-orange-100 bg-orange-50'
-  return 'border-blue-100 bg-blue-50'
+function getEventCardStyle(type: string) {
+  if (type === 'libur') {
+    return {
+      card: 'border-2 border-[#252525] bg-[#FFB5A7] shadow-[3px_3px_0_#252525]',
+      dot: 'border border-[#252525] bg-[#ba1a1a]',
+      badge: 'border border-[#252525] bg-[#ba1a1a] text-white',
+    }
+  }
+
+  if (type === 'cuti') {
+    return {
+      card: 'border-2 border-[#252525] bg-[#FB923C] shadow-[3px_3px_0_#252525]',
+      dot: 'border border-[#252525] bg-white',
+      badge: 'border border-[#252525] bg-white text-[#7c2d12]',
+    }
+  }
+
+  return {
+    card: 'border-2 border-[#252525] bg-[#93C5FD] shadow-[3px_3px_0_#252525]',
+    dot: 'border border-[#252525] bg-white',
+    badge: 'border border-[#252525] bg-white text-[#1e3a8a]',
+  }
 }
 
 function NationalEventList({ date }: { date: Date }) {
@@ -86,32 +104,36 @@ function NationalEventList({ date }: { date: Date }) {
   if (events.length === 0) return null
 
   return (
-    <div className="space-y-2">
-      {events.map((event, index) => (
-        <div
-          key={`${event.name}-${index}`}
-          className={`rounded-xl border p-3 ${getEventBackground(event.type)}`}
-        >
-          <div className="flex items-start gap-2">
-            <span
-              className="mt-1 h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: getEventColor(event.type) }}
-            />
+    <div className="space-y-2.5">
+      {events.map((event, index) => {
+        const style = getEventCardStyle(event.type)
 
-            <div>
-              <p className="text-xs font-bold text-[#252525]">
-                {event.name}
-              </p>
-              <p
-                className="mt-1 text-[10px] font-semibold"
-                style={{ color: getEventColor(event.type) }}
-              >
-                {getEventLabel(event.type)}
-              </p>
+        return (
+          <div
+            key={`${event.name}-${index}`}
+            className={`rounded-xl p-3.5 ${style.card}`}
+          >
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="flex items-start gap-2.5">
+                <span
+                  className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${style.dot}`}
+                />
+
+                <div>
+                  <p className="text-xs font-extrabold leading-snug text-[#252525]">
+                    {event.name}
+                  </p>
+                  <span
+                    className={`mt-1.5 inline-block rounded-full px-2.5 py-0.5 text-[10px] font-extrabold ${style.badge}`}
+                  >
+                    {getEventLabel(event.type)}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -179,13 +201,22 @@ export default function Calendar() {
     })
   }, [displayMonth, todayKey])
 
+  function applyMonthSelection(year: number, monthIndex: number) {
+    const nextMonthDate = new Date(year, monthIndex, 1)
+    setDisplayMonth(nextMonthDate)
+    setSelectedDate(dateKey(nextMonthDate))
+    setAgendaActionMode('normal')
+  }
+
   function changeMonth(amount: number) {
-    setDisplayMonth((current) =>
-      new Date(
-        current.getFullYear(),
-        current.getMonth() + amount,
-        1,
-      ),
+    const nextMonthDate = new Date(
+      displayMonth.getFullYear(),
+      displayMonth.getMonth() + amount,
+      1,
+    )
+    applyMonthSelection(
+      nextMonthDate.getFullYear(),
+      nextMonthDate.getMonth(),
     )
   }
 
@@ -195,14 +226,7 @@ export default function Calendar() {
   }
 
   function jumpToMonth(monthIndex: number) {
-    const nextMonthDate = new Date(pickerYear, monthIndex, 1)
-    setDisplayMonth(nextMonthDate)
-
-    const targetDay = Math.min(
-      selected.getDate(),
-      new Date(pickerYear, monthIndex + 1, 0).getDate(),
-    )
-    setSelectedDate(dateKey(new Date(pickerYear, monthIndex, targetDay)))
+    applyMonthSelection(pickerYear, monthIndex)
     setShowMonthPicker(false)
   }
 
@@ -383,7 +407,7 @@ export default function Calendar() {
 
   return (
     <div className="space-y-6 pb-24">
-      {/* Header kalender (ukuran font seragam dengan Hari Ini) */}
+      {/* Header kalender */}
       <section className="space-y-3.5">
         <div>
           <h1 className="text-[25px] font-bold leading-tight tracking-tight">
@@ -671,7 +695,7 @@ export default function Calendar() {
       )}
 
       {/* Detail agenda tanggal terpilih:
-1. Tanggal -> 2. Aktivitas terselesaikan -> 3. CRUD terpusat di tengah -> 4. Output jadwal */}
+1. Tanggal -> 2. Hari nasional -> 3. Aktivitas terselesaikan -> 4. CRUD terpusat di tengah -> 5. Output jadwal */}
       <section className="space-y-3.5">
         {/* 1. Baris Tanggal */}
         <div className="flex items-center justify-between gap-2">
@@ -684,7 +708,10 @@ export default function Calendar() {
           </span>
         </div>
 
-        {/* 2. Progress Aktivitas Terselesaikan */}
+        {/* 2. Informasi Hari Nasional Tepat di Bawah Tanggal */}
+        <NationalEventList date={selected} />
+
+        {/* 3. Progress Aktivitas Terselesaikan */}
         <div className="rounded-xl border-[1.5px] border-[#252525] bg-[#f1ede6] p-3 shadow-[2px_2px_0_#252525]">
           <div className="flex items-center justify-between">
             <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#252525]">
@@ -710,7 +737,7 @@ export default function Calendar() {
           </div>
         </div>
 
-        {/* 3. Baris CRUD di Tengah: Tambah Jadwal (~50% lebar, Ungu Muda) + Ikon Edit + Ikon Hapus */}
+        {/* 4. Baris CRUD di Tengah */}
         <div className="flex items-center justify-center gap-2 pt-0.5">
           <button
             type="button"
@@ -775,9 +802,7 @@ export default function Calendar() {
           </p>
         )}
 
-        {/* 4. Hari Nasional & Output dari Tambah Jadwal */}
-        <NationalEventList date={selected} />
-
+        {/* 5. Output dari Tambah Jadwal */}
         {selectedAgenda.length === 0 ? (
           <div className="rounded-xl border-2 border-dashed border-[#c7beb0] bg-white px-4 py-9 text-center">
             <CalendarDays size={28} className="mx-auto text-[#aaa197]" />

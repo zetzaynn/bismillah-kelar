@@ -635,7 +635,7 @@ export default function Tasks() {
 
         {activeFilter === 'Hari Ini' && <TodaySection showEmptyState={true} />}
 
-        {overdueTasks.length > 0 && (
+        {(activeFilter === 'Terlewat' || overdueTasks.length > 0) && (
           <section className="mb-5">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -651,15 +651,29 @@ export default function Tasks() {
               <TaskActionButtons />
             </div>
 
-            <div className="space-y-2">
-              {overdueTasks.map((task) => (
-                <TaskRow key={task.id} task={task} />
-              ))}
-            </div>
+            {overdueTasks.length === 0 ? (
+              <div className="rounded-xl border-2 border-dashed border-[#c7beb0] bg-white px-4 py-10 text-center">
+                <CalendarDays size={28} className="mx-auto text-[#aaa197]" />
+
+                <h3 className="mt-2.5 text-sm font-bold">
+                  Tidak ada target terlewat
+                </h3>
+
+                <p className="mt-1 text-xs text-[#77716a]">
+                  Semua target sebelumnya sudah tertangani dengan baik.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {overdueTasks.map((task) => (
+                  <TaskRow key={task.id} task={task} />
+                ))}
+              </div>
+            )}
           </section>
         )}
 
-        {upcomingTasks.length > 0 && (
+        {(activeFilter === 'Mendatang' || upcomingTasks.length > 0) && (
           <section className="mb-5">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -675,15 +689,29 @@ export default function Tasks() {
               <TaskActionButtons />
             </div>
 
-            <div className="space-y-2">
-              {upcomingTasks.map((task) => (
-                <TaskRow key={task.id} task={task} />
-              ))}
-            </div>
+            {upcomingTasks.length === 0 ? (
+              <div className="rounded-xl border-2 border-dashed border-[#c7beb0] bg-white px-4 py-10 text-center">
+                <CalendarDays size={28} className="mx-auto text-[#aaa197]" />
+
+                <h3 className="mt-2.5 text-sm font-bold">
+                  Belum ada target mendatang
+                </h3>
+
+                <p className="mt-1 text-xs text-[#77716a]">
+                  Tekan tombol + Tambah Target di bawah untuk menjadwalkan target berikutnya.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {upcomingTasks.map((task) => (
+                  <TaskRow key={task.id} task={task} />
+                ))}
+              </div>
+            )}
           </section>
         )}
 
-        {completedTasks.length > 0 && (
+        {(activeFilter === 'Selesai' || completedTasks.length > 0) && (
           <section className="mb-5">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -699,11 +727,25 @@ export default function Tasks() {
               <TaskActionButtons />
             </div>
 
-            <div className="space-y-2">
-              {completedTasks.map((task) => (
-                <TaskRow key={task.id} task={task} />
-              ))}
-            </div>
+            {completedTasks.length === 0 ? (
+              <div className="rounded-xl border-2 border-dashed border-[#c7beb0] bg-white px-4 py-10 text-center">
+                <CalendarDays size={28} className="mx-auto text-[#aaa197]" />
+
+                <h3 className="mt-2.5 text-sm font-bold">
+                  Belum ada target selesai
+                </h3>
+
+                <p className="mt-1 text-xs text-[#77716a]">
+                  Target yang sudah kamu centang selesai akan muncul di sini.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {completedTasks.map((task) => (
+                  <TaskRow key={task.id} task={task} />
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -719,55 +761,6 @@ export default function Tasks() {
 
               <p className="mt-1 text-xs text-[#77716a]">
                 Tekan tombol + Tambah Target di bawah untuk menambahkan target baru.
-              </p>
-            </div>
-          </section>
-        )}
-
-        {/* Tampilan Kosong Khusus Filter Selesai / Terlewat / Mendatang */}
-        {activeFilter === 'Selesai' && completedTasks.length === 0 && (
-          <section>
-            <div className="rounded-xl border-2 border-dashed border-[#c7beb0] bg-white px-4 py-10 text-center">
-              <CalendarDays size={28} className="mx-auto text-[#aaa197]" />
-
-              <h3 className="mt-2.5 text-sm font-bold">
-                Belum ada target selesai
-              </h3>
-
-              <p className="mt-1 text-xs text-[#77716a]">
-                Target yang sudah kamu centang selesai akan muncul di sini.
-              </p>
-            </div>
-          </section>
-        )}
-
-        {activeFilter === 'Terlewat' && overdueTasks.length === 0 && (
-          <section>
-            <div className="rounded-xl border-2 border-dashed border-[#c7beb0] bg-white px-4 py-10 text-center">
-              <CalendarDays size={28} className="mx-auto text-[#aaa197]" />
-
-              <h3 className="mt-2.5 text-sm font-bold">
-                Tidak ada target terlewat
-              </h3>
-
-              <p className="mt-1 text-xs text-[#77716a]">
-                Semua target sebelumnya sudah tertangani dengan baik.
-              </p>
-            </div>
-          </section>
-        )}
-
-        {activeFilter === 'Mendatang' && upcomingTasks.length === 0 && (
-          <section>
-            <div className="rounded-xl border-2 border-dashed border-[#c7beb0] bg-white px-4 py-10 text-center">
-              <CalendarDays size={28} className="mx-auto text-[#aaa197]" />
-
-              <h3 className="mt-2.5 text-sm font-bold">
-                Belum ada target mendatang
-              </h3>
-
-              <p className="mt-1 text-xs text-[#77716a]">
-                Tekan tombol + Tambah Target di bawah untuk menjadwalkan target berikutnya.
               </p>
             </div>
           </section>
