@@ -21,7 +21,7 @@ interface BottomNavProps {
 
 const navigationItems = [
   { id: 'today', label: 'Hari Ini', icon: Sun },
-  { id: 'tasks', label: 'Tugas', icon: CheckCircle2 },
+  { id: 'tasks', label: 'Target', icon: CheckCircle2 },
   { id: 'calendar', label: 'Kalender', icon: CalendarDays },
   { id: 'progress', label: 'Progres', icon: ChartNoAxesCombined },
   { id: 'more', label: 'Lainnya', icon: MoreHorizontal },

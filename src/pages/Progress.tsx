@@ -1,5 +1,5 @@
-
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   CalendarDays,
   ChevronDown,
@@ -19,7 +19,46 @@ type Period = 'Pekan Ini' | 'Bulan Ini'
 
 const weekLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
 
-const habitColors = ['#BDECCF', '#D9CCFF', '#FFE69A', '#FFB5A7', '#BBDFFF']
+const habitColorCycle = [
+  '#FFE69A', // 1. Krem
+  '#CDE8D3', // 2. Hijau Pudar (seperti ceklis target selesai)
+  '#D9CCFF', // 3. Ungu
+  '#93C5FD', // 4. Biru
+  '#FFB5A7', // 5. Merah Muda
+  '#FB923C', // 6. Oranye
+]
+
+function getHabitColor(title: string, index: number) {
+  if (index < 3) {
+    const normalized = title.toLowerCase()
+
+    if (
+      normalized.includes('mengaji') ||
+      normalized.includes('quran') ||
+      normalized.includes('tilawah')
+    ) {
+      return '#FFE69A'
+    }
+
+    if (
+      normalized.includes('olahraga') ||
+      normalized.includes('lari') ||
+      normalized.includes('workout') ||
+      normalized.includes('gym')
+    ) {
+      return '#CDE8D3'
+    }
+
+    if (
+      normalized.includes('tidur') ||
+      normalized.includes('istirahat')
+    ) {
+      return '#D9CCFF'
+    }
+  }
+
+  return habitColorCycle[index % habitColorCycle.length]
+}
 
 const emptyReflection = {
   good: '',
@@ -30,19 +69,31 @@ const emptyReflection = {
 const milestones = [
   {
     title: 'Konsistensi 14 Hari',
-    description: 'Membangun kebiasaan menyelesaikan target harian.',
+    description: 'Membangun rutinitas menyelesaikan target harian.',
+    requirement:
+      'Selesaikan minimal 1 target atau agenda pada 14 hari berbeda dalam periode berjalan.',
+    unit: 'hari produktif',
+    target: 14,
     icon: Flame,
     color: '#FFE69A',
   },
   {
     title: 'Pembelajar Konsisten',
     description: 'Meluangkan waktu untuk membaca dan belajar.',
+    requirement:
+      'Tuntaskan minimal 5 target dalam periode berjalan.',
+    unit: 'target selesai',
+    target: 5,
     icon: BookOpen,
     color: '#BDECCF',
   },
   {
     title: 'Fokus Mendalam',
     description: 'Menyelesaikan sesi fokus tanpa gangguan.',
+    requirement:
+      'Selesaikan minimal 5 sesi timer fokus Pomodoro hingga tuntas dalam periode berjalan.',
+    unit: 'sesi fokus',
+    target: 5,
     icon: Brain,
     color: '#D9CCFF',
   },
@@ -61,7 +112,7 @@ function getMonday(date: Date) {
   return result
 }
 
-function formatDate(date: Date) {
+function formatShortDayMonth(date: Date) {
   return new Intl.DateTimeFormat('id-ID', {
     day: 'numeric',
     month: 'short',
@@ -74,17 +125,20 @@ export default function Progress() {
 
   const [period, setPeriod] = useState<Period>('Pekan Ini')
   const [showPeriod, setShowPeriod] = useState(false)
+  const [selectedMilestoneIndex, setSelectedMilestoneIndex] = useState<
+    number | null
+  >(null)
 
- const weekStartKey = getDateKey(getMonday(new Date()))
+  const weekStartKey = getDateKey(getMonday(new Date()))
 
-const reflection =
-  data.dailyRecords[weekStartKey]?.reflection ?? emptyReflection
+  const reflection =
+    data.dailyRecords[weekStartKey]?.reflection ?? emptyReflection
 
-const [editingReflection, setEditingReflection] = useState(false)
+  const [editingReflection, setEditingReflection] = useState(false)
 
-const [draftReflection, setDraftReflection] = useState({
-  ...emptyReflection,
-})
+  const [draftReflection, setDraftReflection] = useState({
+    ...emptyReflection,
+  })
 
   const now = new Date()
   const todayKey = getDateKey(now)
@@ -102,7 +156,6 @@ const [draftReflection, setDraftReflection] = useState({
   const periodStartKey = getDateKey(periodStart)
   const periodEndKey = getDateKey(periodEnd)
 
-  // Data tugas dan agenda
   const allTasks = data.tasks
 
   const allAgenda = Object.entries(data.agenda).flatMap(
@@ -142,7 +195,6 @@ const [draftReflection, setDraftReflection] = useState({
 
   const productiveDays = productiveDates.size
 
-  // Data sesi fokus dari DailyRecord
   const periodRecords = Object.entries(data.dailyRecords).filter(
     ([date]) =>
       date >= periodStartKey &&
@@ -164,14 +216,13 @@ const [draftReflection, setDraftReflection] = useState({
       ? Math.round(totalFocusMinutes / totalFocusSessions)
       : 0
 
-  const weekRange = `${formatDate(monday)} – ${formatDate(sunday)} ${sunday.getFullYear()}`
+  const weekRange = `${formatShortDayMonth(monday)} – ${formatShortDayMonth(sunday)}`
 
   const monthlyLabel = new Intl.DateTimeFormat('id-ID', {
     month: 'long',
     year: 'numeric',
   }).format(now)
 
-  // Menghitung persentase kebiasaan berdasarkan hari yang sudah berjalan
   const elapsedDays =
     period === 'Pekan Ini'
       ? Math.min(
@@ -214,7 +265,6 @@ const [draftReflection, setDraftReflection] = useState({
         )
       : 0
 
-  // Data grafik aktivitas produktif
   const chartData = useMemo(() => {
     if (period === 'Pekan Ini') {
       return Array.from({ length: 7 }, (_, index) => {
@@ -290,7 +340,6 @@ const [draftReflection, setDraftReflection] = useState({
     Math.max(1, elapsedDays)
   ).toFixed(1)
 
-  // Data kebiasaan mingguan yang tersinkronisasi dengan Today
   const weekDays = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(monday)
     date.setDate(monday.getDate() + index)
@@ -313,50 +362,66 @@ const [draftReflection, setDraftReflection] = useState({
     })
   }
 
-function saveReflection() {
-  updateDailyRecord(weekStartKey, {
-    reflection: { ...draftReflection },
-  })
+  function saveReflection() {
+    updateDailyRecord(weekStartKey, {
+      reflection: { ...draftReflection },
+    })
 
-  setEditingReflection(false)
-}
+    setEditingReflection(false)
+  }
 
-  const milestoneStatus = [
-    productiveDays >= 14 ? 'Tercapai' : 'Dalam Proses',
-    completedTasks.length >= 5 ? 'Tercapai' : 'Dalam Proses',
-    totalFocusSessions >= 5 ? 'Tercapai' : 'Dalam Proses',
+  const milestoneCurrentValues = [
+    productiveDays,
+    completedTasks.length,
+    totalFocusSessions,
   ]
+
+  const milestoneStatus = milestones.map((item, index) =>
+    milestoneCurrentValues[index] >= item.target
+      ? 'Tercapai'
+      : 'Dalam Proses',
+  )
+
+  const activeMilestone =
+    selectedMilestoneIndex !== null
+      ? {
+          ...milestones[selectedMilestoneIndex],
+          current: milestoneCurrentValues[selectedMilestoneIndex],
+          status: milestoneStatus[selectedMilestoneIndex],
+        }
+      : null
 
   return (
     <div className="space-y-7 pb-24">
+      {/* Header, Filter Pekan Ini & Ringkasan Capaian */}
+      <section className="space-y-4">
+        <div>
+          <h1 className="text-[25px] font-bold leading-tight tracking-tight">
+            Progres
+          </h1>
+          <p className="mt-1 text-sm text-[#77716a]">
+            Lihat perkembangan kecil yang berarti, {profileName}.
+          </p>
+        </div>
 
-      {/* Header */}
-      <section className="space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Progres
-            </h1>
-            <p className="mt-1 text-xs text-[#77716a]">
-              Lihat perkembangan kecil yang berarti, {profileName}.
-            </p>
-          </div>
-
-          <div className="relative">
+        <div className="flex items-center justify-between gap-2 pt-0.5">
+          <div className="relative shrink-0">
             <button
+              type="button"
               onClick={() => setShowPeriod(!showPeriod)}
-              className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-[10px] font-bold shadow-[2px_2px_0_#252525]"
+              className="flex items-center gap-1.5 rounded-xl border-[1.5px] border-[#252525] bg-[#FFE69A] px-3.5 py-2 text-xs font-extrabold text-[#252525] shadow-[2px_2px_0_#252525] transition hover:bg-[#ffdf7e] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
             >
               <CalendarDays size={14} />
               {period}
-              <ChevronDown size={13} />
+              <ChevronDown size={14} strokeWidth={2.5} />
             </button>
 
             {showPeriod && (
-              <div className="absolute right-0 top-11 z-30 w-36 rounded-xl border border-[#e9e1d5] bg-white p-2 shadow-lg">
+              <div className="absolute left-0 top-11 z-30 w-36 rounded-xl border-2 border-[#252525] bg-white p-2 shadow-[3px_3px_0_#252525]">
                 {(['Pekan Ini', 'Bulan Ini'] as Period[]).map((item) => (
                   <button
                     key={item}
+                    type="button"
                     onClick={() => {
                       setPeriod(item)
                       setShowPeriod(false)
@@ -373,56 +438,71 @@ function saveReflection() {
               </div>
             )}
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-[#f1ede6] px-3 py-1 text-[10px] font-semibold text-[#77716a]">
-            ● {period === 'Pekan Ini' ? weekRange : monthlyLabel}
-          </span>
-          <span className="text-[10px] text-[#77716a]">
-            • Ruang Produktivitas Personal
+          <span className="inline-flex items-center justify-center whitespace-nowrap rounded-full border-2 border-[#252525] bg-[#252525] px-9 py-2 text-xs font-extrabold text-[#FFE69A] shadow-[2px_2px_0_#D9CCFF]">
+            {period === 'Pekan Ini' ? weekRange : monthlyLabel}
           </span>
         </div>
-      </section>
 
-      {/* Overview */}
-      <section className="rounded-xl bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-2 gap-y-5">
-          {[
-            {
-              label: 'Tingkat Kebiasaan',
-              value: `${habitPercentage}%`,
-              color: '#BDECCF',
-            },
-            {
-              label: 'Tugas Beres',
-              value: completedTasks.length,
-              color: '#D9CCFF',
-            },
-            {
-              label: 'Aktivitas Selesai',
-              value: totalCompleted,
-              color: '#FFB5A7',
-            },
-            {
-              label: 'Hari Produktif',
-              value: `${productiveDays} hari`,
-              color: '#FFE69A',
-            },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: item.color }}
-              />
-              <div>
-                <p className="text-lg font-extrabold">{item.value}</p>
-                <p className="text-[10px] text-[#77716a]">
-                  {item.label}
-                </p>
+        {/* Ringkasan Capaian (Header di luar bingkai kiri atas konsisten dengan fitur lainnya) */}
+        <div className="space-y-3 pt-1">
+          <div>
+            <h2 className="text-base font-bold">
+              Ringkasan Capaian
+            </h2>
+          </div>
+
+          <div className="rounded-xl border-2 border-[#252525] bg-white p-4 shadow-[3px_3px_0_#252525]">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex items-center gap-2.5 rounded-xl border-[1.5px] border-[#252525] bg-[#93C5FD] p-3 shadow-[2px_2px_0_#252525]">
+                <span className="h-3 w-3 shrink-0 rounded-full border border-[#252525] bg-white" />
+                <div>
+                  <p className="text-lg font-extrabold text-[#252525]">
+                    {completedTasks.length}
+                  </p>
+                  <p className="text-[11px] font-extrabold text-[#1e3a8a]">
+                    Target Beres
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 rounded-xl border-[1.5px] border-[#252525] bg-[#4ADE80] p-3 shadow-[2px_2px_0_#252525]">
+                <span className="h-3 w-3 shrink-0 rounded-full border border-[#252525] bg-white" />
+                <div>
+                  <p className="text-lg font-extrabold text-[#252525]">
+                    {completedAgenda.length}
+                  </p>
+                  <p className="text-[11px] font-extrabold text-[#14532d]">
+                    Aktivitas Selesai
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 rounded-xl border-[1.5px] border-[#252525] bg-[#FFE69A] p-3 shadow-[2px_2px_0_#252525]">
+                <span className="h-3 w-3 shrink-0 rounded-full border border-[#252525] bg-white" />
+                <div>
+                  <p className="text-lg font-extrabold text-[#252525]">
+                    {productiveDays} hari
+                  </p>
+                  <p className="text-[11px] font-extrabold text-[#554507]">
+                    Hari Produktif
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 rounded-xl border-[1.5px] border-[#252525] bg-[#D9CCFF] p-3 shadow-[2px_2px_0_#252525]">
+                <span className="h-3 w-3 shrink-0 rounded-full border border-[#252525] bg-white" />
+                <div>
+                  <p className="text-lg font-extrabold text-[#252525]">
+                    {habitPercentage}%
+                  </p>
+                  <p className="text-[11px] font-extrabold text-[#3b2f63]">
+                    Tingkat Rutinitas
+                  </p>
+                </div>
               </div>
             </div>
-          ))}
+          </div>
         </div>
       </section>
 
@@ -433,18 +513,18 @@ function saveReflection() {
             <h2 className="text-base font-bold">
               Aktivitas Produktif
             </h2>
-            <p className="mt-1 text-[10px] text-[#77716a]">
+            <p className="mt-1 text-xs text-[#77716a]">
               Rata-rata {averageActivities} aktivitas selesai per hari
             </p>
           </div>
 
-          <span className="rounded-full bg-[#d9ccff] px-2 py-1 text-[9px] font-bold">
+          <span className="shrink-0 rounded-full border-2 border-[#252525] bg-[#4ADE80] px-3 py-1 text-[11px] font-extrabold text-[#14532d] shadow-[2px_2px_0_#252525]">
             {totalCompleted} selesai
           </span>
         </div>
 
-        <div className="rounded-xl bg-white p-4 shadow-sm">
-          <div className="mb-3 flex justify-between text-[9px] text-[#999188]">
+        <div className="rounded-xl border-2 border-[#252525] bg-white p-4 shadow-[3px_3px_0_#252525]">
+          <div className="mb-3 flex justify-between text-[10px] text-[#999188]">
             <span>{maxChartValue} aktivitas</span>
             <span>0 aktivitas</span>
           </div>
@@ -458,14 +538,14 @@ function saveReflection() {
                   key={item.label}
                   className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2"
                 >
-                  <span className="text-[9px] font-semibold text-[#77716a]">
+                  <span className="text-[10px] font-bold text-[#514b43]">
                     {item.value}
                   </span>
 
                   <div
                     className={`w-full max-w-7 rounded-t-md transition-all ${
                       item.value > 0
-                        ? 'bg-[#bdeccf] shadow-[2px_2px_0_#252525]'
+                        ? 'border border-[#252525] bg-[#93C5FD] shadow-[2px_2px_0_#252525]'
                         : 'bg-[#e8e3da]'
                     }`}
                     style={{
@@ -473,7 +553,7 @@ function saveReflection() {
                     }}
                   />
 
-                  <span className="text-[9px] font-semibold text-[#77716a]">
+                  <span className="text-[10px] font-semibold text-[#77716a]">
                     {item.label}
                   </span>
                 </div>
@@ -481,91 +561,90 @@ function saveReflection() {
             })}
           </div>
 
-          <p className="mt-3 text-center text-[9px] text-[#999188]">
-            Berdasarkan tugas dan agenda yang ditandai selesai.
+          <p className="mt-3 text-center text-[10px] text-[#999188]">
+            Berdasarkan target dan agenda yang ditandai selesai.
           </p>
         </div>
       </section>
 
-      {/* Focus statistics */}
+      {/* Statistik Sesi Fokus */}
       <section className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
+        <div>
           <h2 className="text-base font-bold">
             Statistik Sesi Fokus
           </h2>
-          <span className="rounded-lg bg-[#ffe69a] px-2 py-1 text-[9px] font-bold shadow-[1px_1px_0_#252525]">
-            Mode Fokus
-          </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#d9ccff]">
-              <Brain size={18} />
-            </div>
-            <p className="mt-3 text-2xl font-extrabold">
-              {totalFocusSessions}
-            </p>
-            <p className="text-[10px] text-[#77716a]">
-              Sesi fokus selesai
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#bdeccf]">
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="rounded-xl border-2 border-[#252525] bg-[#FB923C] p-4 text-[#252525] shadow-[3px_3px_0_#252525]">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#252525] bg-white text-[#7c2d12]">
               <Clock3 size={18} />
             </div>
-            <p className="mt-3 text-2xl font-extrabold">
+            <p className="mt-3 text-2xl font-extrabold text-[#252525]">
               {totalFocusMinutes}
-              <span className="ml-1 text-xs font-semibold">menit</span>
+              <span className="ml-1 text-xs font-bold text-[#252525]/85">
+                menit
+              </span>
             </p>
-            <p className="text-[10px] text-[#77716a]">
+            <p className="text-[11px] font-extrabold text-[#7c2d12]">
               Total waktu fokus
             </p>
           </div>
+
+          <div className="rounded-xl border-2 border-[#252525] bg-[#4ADE80] p-4 text-[#252525] shadow-[3px_3px_0_#252525]">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#252525] bg-white text-[#14532d]">
+              <Brain size={18} />
+            </div>
+            <p className="mt-3 text-2xl font-extrabold text-[#252525]">
+              {totalFocusSessions}
+            </p>
+            <p className="text-[11px] font-extrabold text-[#14532d]">
+              Sesi fokus selesai
+            </p>
+          </div>
         </div>
 
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-xl border-2 border-[#252525] bg-white p-4 shadow-[3px_3px_0_#252525]">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-bold">
+              <p className="text-sm font-bold">
                 Rata-rata durasi sesi
               </p>
-              <p className="mt-1 text-[10px] text-[#77716a]">
+              <p className="mt-0.5 text-xs text-[#77716a]">
                 Berdasarkan sesi fokus yang selesai
               </p>
             </div>
-            <span className="text-lg font-extrabold">
+            <span className="text-lg font-extrabold underline decoration-[#FB923C] decoration-[3px] underline-offset-4">
               {averageFocusMinutes} menit
             </span>
           </div>
         </div>
       </section>
 
-      {/* Habit tracker */}
+      {/* Rutinitas Sepekan */}
       <section className="space-y-3">
         <div>
           <h2 className="text-base font-bold">
-            Kebiasaan Sepekan
+            Rutinitas Sepekan
           </h2>
-          <p className="mt-1 text-[10px] text-[#77716a]">
+          <p className="mt-1 text-xs text-[#77716a]">
             Terhubung langsung dengan Rutinitas Harian di Today.
           </p>
         </div>
 
-        <div className="overflow-hidden rounded-xl bg-white p-3 shadow-sm">
+        <div className="overflow-hidden rounded-xl border-2 border-[#252525] bg-white p-3.5 shadow-[3px_3px_0_#252525]">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-xs font-bold">
               {completedHabitPoints}/{totalHabitPoints} aktivitas
             </span>
-            <span className="text-xs font-bold text-[#625884]">
+            <span className="rounded-full border border-[#252525] bg-[#4ADE80] px-2.5 py-0.5 text-[11px] font-extrabold text-[#14532d]">
               {habitPercentage}%
             </span>
           </div>
 
           <div className="mb-4 h-2 overflow-hidden rounded-full bg-[#f1ede6]">
             <div
-              className="h-full rounded-full bg-[#bdeccf] transition-all"
+              className="h-full rounded-full bg-[#4ADE80] transition-all"
               style={{ width: `${habitPercentage}%` }}
             />
           </div>
@@ -582,18 +661,20 @@ function saveReflection() {
                     data.dailyRecords[day.key]?.habitStatus?.[habit.id] === true,
                 ).length
 
+                const habitBadgeColor = getHabitColor(habit.title, habitIndex)
+
                 return (
                   <div key={habit.id}>
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold">
+                      <span className="text-sm font-bold">
                         {habit.title}
                       </span>
-                      <span className="text-[9px] text-[#77716a]">
+                      <span className="text-[11px] font-semibold text-[#77716a]">
                         {completed}/7 hari
                       </span>
                     </div>
 
-                    <div className="flex justify-between gap-1">
+                    <div className="flex justify-between gap-1.5">
                       {weekDays.map((day, index) => {
                         const done =
                           data.dailyRecords[day.key]?.habitStatus?.[habit.id] === true
@@ -603,31 +684,33 @@ function saveReflection() {
                         return (
                           <button
                             key={day.key}
+                            type="button"
+                            data-sound="check"
                             onClick={() => toggleHabit(habit.id, day.key)}
                             disabled={isFuture}
                             aria-label={`${habit.title}, ${weekLabels[index]}`}
-                            className={`flex h-7 min-w-0 flex-1 items-center justify-center rounded-full text-[10px] transition active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 ${
+                            className={`flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg border-[1.5px] border-[#252525] text-[10px] font-extrabold transition active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-40 ${
                               done
-                                ? 'text-[#252525]'
-                                : 'bg-[#f1ede6] text-[#aaa197]'
+                                ? 'text-[#252525] shadow-[2px_2px_0_#252525]'
+                                : 'bg-[#f5f0e7] text-[#8a8278] shadow-[1.5px_1.5px_0_#252525]'
                             }`}
                             style={{
                               backgroundColor: done
-                                ? habitColors[habitIndex % habitColors.length]
+                                ? habitBadgeColor
                                 : undefined,
                             }}
                           >
-                            {done ? <Check size={13} /> : '·'}
+                            {done ? <Check size={13} strokeWidth={2.8} /> : '·'}
                           </button>
                         )
                       })}
                     </div>
 
-                    <div className="mt-1 flex justify-between">
+                    <div className="mt-1.5 flex justify-between">
                       {weekLabels.map((day) => (
                         <span
                           key={day}
-                          className="flex-1 text-center text-[8px] text-[#999188]"
+                          className="flex-1 text-center text-[9px] font-semibold text-[#999188]"
                         >
                           {day}
                         </span>
@@ -641,159 +724,316 @@ function saveReflection() {
         </div>
       </section>
 
-      {/* Personal milestones */}
+      {/* Pencapaian Personal */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-bold">
             Pencapaian Personal
           </h2>
-          <span className="text-[9px] text-[#77716a]">
-            Bukan perlombaan 🌿
-          </span>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {milestones.map((item, index) => {
             const Icon = item.icon
+            const achieved = milestoneStatus[index] === 'Tercapai'
 
             return (
-              <div
+              <button
                 key={item.title}
-                className="flex items-center gap-3 rounded-xl bg-white p-3 shadow-sm"
+                type="button"
+                onClick={() => setSelectedMilestoneIndex(index)}
+                className="flex w-full items-center gap-3 rounded-xl border-2 border-[#252525] bg-white p-3.5 text-left shadow-[3px_3px_0_#252525] transition hover:bg-[#fffdf7] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
               >
                 <div
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg shadow-[2px_2px_0_#252525]"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#252525] shadow-[2px_2px_0_#252525]"
                   style={{ backgroundColor: item.color }}
                 >
                   <Icon size={19} />
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center justify-between gap-1">
-                    <h3 className="text-xs font-bold">
-                      {item.title}
-                    </h3>
-                    <span className="text-[9px] font-bold text-[#625884]">
+                  <h3 className="text-sm font-extrabold leading-snug text-[#252525]">
+                    {item.title}
+                  </h3>
+
+                  <div className="mt-1.5">
+                    <span
+                      className={`inline-block whitespace-nowrap rounded-full border border-[#252525] px-2.5 py-0.5 text-[10px] font-extrabold ${
+                        achieved
+                          ? 'bg-[#4ADE80] text-[#14532d]'
+                          : 'bg-[#FB923C] text-[#252525]'
+                      }`}
+                    >
                       {milestoneStatus[index]}
                     </span>
                   </div>
-                  <p className="mt-1 text-[10px] text-[#77716a]">
+
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#77716a]">
                     {item.description}
                   </p>
                 </div>
-              </div>
+
+                <ChevronRight size={16} className="shrink-0 text-[#8a8278]" />
+              </button>
             )
           })}
         </div>
       </section>
 
-      {/* Weekly reflection */}
+      {/* Refleksi Pekan Ini */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-bold">
             Refleksi Pekan Ini
           </h2>
-          <span className="text-[9px] text-[#77716a]">
-            Catatan Personal
-          </span>
         </div>
 
-        <div className="space-y-4 rounded-xl border-l-4 border-[#d9ccff] bg-white p-4 shadow-sm">
+        <div className="space-y-4 rounded-xl border-2 border-[#252525] bg-white p-4 shadow-[3px_3px_0_#252525]">
           {[
             {
               key: 'good' as const,
               title: 'Yang berjalan baik',
-              color: '#bdeccf',
+              badgeClass: 'bg-[#4ADE80] text-[#14532d]',
             },
             {
               key: 'improve' as const,
               title: 'Perlu dievaluasi',
-              color: '#ffb5a7',
+              badgeClass: 'bg-[#FFB5A7] text-[#252525]',
             },
             {
               key: 'next' as const,
               title: 'Fokus berikutnya',
-              color: '#ffe69a',
+              badgeClass: 'bg-[#FFE69A] text-[#252525]',
             },
           ].map((item) => (
-            <div key={item.key}>
-              <div className="mb-1 flex items-center gap-2">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span className="text-xs font-bold">
-                  {item.title}
-                </span>
-              </div>
-              <p className="pl-4 text-[11px] leading-relaxed text-[#77716a]">
+            <div key={item.key} className="space-y-1.5">
+              <span
+                className={`inline-block rounded-lg border-[1.5px] border-[#252525] px-3 py-1 text-xs font-extrabold shadow-[1.5px_1.5px_0_#252525] ${item.badgeClass}`}
+              >
+                {item.title}
+              </span>
+              <p className="text-sm leading-relaxed text-[#252525]">
                 {reflection[item.key] || 'Belum ada catatan.'}
               </p>
             </div>
           ))}
 
-          <button
-            onClick={() => {
-  setDraftReflection({ ...reflection })
-  setEditingReflection(true)
-}}
-            className="flex w-full items-center justify-end gap-2 border-t border-[#eee8df] pt-3 text-xs font-bold text-[#625884]"
-          >
-            <Pencil size={13} />
-            Tulis Refleksi Baru
-            <ChevronRight size={14} />
-          </button>
-        </div>
-      </section>
-
-      {/* Reflection modal */}
-      {editingReflection && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40">
-          <div className="w-full max-w-[480px] space-y-4 rounded-t-2xl bg-[#fffaf1] p-5 pb-8">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold">
-                Refleksi Pekan Ini
-              </h2>
-              <button
-                onClick={() => setEditingReflection(false)}
-                aria-label="Tutup refleksi"
-              >
-                <X size={19} />
-              </button>
-            </div>
-
-            {[
-              { key: 'good' as const, label: 'Yang berjalan baik' },
-              { key: 'improve' as const, label: 'Perlu dievaluasi' },
-              { key: 'next' as const, label: 'Fokus berikutnya' },
-            ].map((item) => (
-              <div key={item.key} className="space-y-2">
-                <label className="text-xs font-bold">
-                  {item.label}
-                </label>
-                <textarea
-                  rows={2}
-                  value={draftReflection[item.key]}
-                  onChange={(event) =>
-                    setDraftReflection((current) => ({
-                      ...current,
-                      [item.key]: event.target.value,
-                    }))
-                  }
-                  className="w-full resize-none rounded-lg bg-white p-3 text-xs outline-none focus:ring-1 focus:ring-[#252525]"
-                />
-              </div>
-            ))}
-
+          <div className="border-t border-[#eee8df] pt-3">
             <button
-              onClick={saveReflection}
-              className="w-full rounded-lg bg-[#252525] py-3 text-xs font-bold text-white"
+              type="button"
+              onClick={() => {
+                setDraftReflection({ ...reflection })
+                setEditingReflection(true)
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border-[1.5px] border-[#252525] bg-[#FFE69A] px-4 py-3 text-sm font-extrabold text-[#252525] shadow-[2px_2px_0_#252525] transition hover:bg-[#ffdf7e] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
             >
-              Simpan Refleksi
+              <Pencil size={15} />
+              <span>Tulis Refleksi Baru</span>
             </button>
           </div>
         </div>
-      )}
+      </section>
+
+      {/* Pop-up Detail Pencapaian Personal */}
+      {activeMilestone &&
+        createPortal(
+          <div
+            onClick={() => setSelectedMilestoneIndex(null)}
+            className="fixed inset-0 z-[75] flex items-center justify-center bg-[#252525]/40 px-4 py-6 backdrop-blur-sm"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-sm rounded-2xl border-2 border-[#252525] bg-[#fffaf1] p-5 shadow-[5px_5px_0_#252525]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#252525] shadow-[2px_2px_0_#252525]"
+                    style={{ backgroundColor: activeMilestone.color }}
+                  >
+                    {(() => {
+                      const Icon = activeMilestone.icon
+                      return <Icon size={21} />
+                    })()}
+                  </div>
+
+                  <div>
+                    <h3 className="text-base font-extrabold">
+                      {activeMilestone.title}
+                    </h3>
+                    <span
+                      className={`mt-1 inline-block rounded-full border border-[#252525] px-2.5 py-0.5 text-[10px] font-extrabold ${
+                        activeMilestone.status === 'Tercapai'
+                          ? 'bg-[#4ADE80] text-[#14532d]'
+                          : 'bg-[#FB923C] text-[#252525]'
+                      }`}
+                    >
+                      {activeMilestone.status}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedMilestoneIndex(null)}
+                  aria-label="Tutup detail pencapaian"
+                  className="rounded-lg bg-[#f1ede6] p-1.5 hover:bg-[#e5dfd3]"
+                >
+                  <X size={17} />
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-[#252525]/20 bg-white p-3.5">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#77716a]">
+                  Syarat Pencapaian
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-[#252525]">
+                  {activeMilestone.requirement}
+                </p>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-[#252525]/20 bg-white p-3.5">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span>Progres ({period})</span>
+                  <span>
+                    {Math.min(activeMilestone.current, activeMilestone.target)} /{' '}
+                    {activeMilestone.target} {activeMilestone.unit}
+                  </span>
+                </div>
+
+                <div className="mt-2.5 h-2.5 overflow-hidden rounded-full border border-[#252525]/20 bg-[#f1ede6]">
+                  <div
+                    className="h-full rounded-full bg-[#4ADE80] transition-all"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.round(
+                          (activeMilestone.current / activeMilestone.target) *
+                            100,
+                        ),
+                      )}%`,
+                    }}
+                  />
+                </div>
+
+                <p className="mt-2 text-[11px] text-[#77716a]">
+                  {activeMilestone.status === 'Tercapai'
+                    ? 'MasyaAllah, pencapaian ini sudah berhasil kamu raih!'
+                    : `Butuh ${Math.max(
+                        0,
+                        activeMilestone.target - activeMilestone.current,
+                      )} ${activeMilestone.unit} lagi untuk membuka lencana ini.`}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMilestoneIndex(null)}
+                className="mt-4 w-full rounded-xl border-2 border-[#252525] bg-[#FFE69A] py-2.5 text-xs font-extrabold shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+              >
+                Mengerti
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* Reflection modal */}
+      {editingReflection &&
+        createPortal(
+          <div
+            onClick={() => setEditingReflection(false)}
+            className="fixed inset-0 z-[70] flex items-end justify-center bg-[#252525]/40 backdrop-blur-sm sm:items-center sm:px-4"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              onClick={(event) => event.stopPropagation()}
+              className="max-h-[90vh] w-full max-w-[480px] space-y-4 overflow-y-auto rounded-t-2xl border-t-2 border-[#252525] bg-[#fffaf1] p-5 pb-8 shadow-2xl sm:rounded-2xl sm:border-2 sm:shadow-[5px_5px_0_#252525]"
+            >
+              <div className="mx-auto h-1 w-12 rounded-full bg-[#d8d0c4] sm:hidden" />
+
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-bold">
+                  Refleksi Pekan Ini
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setEditingReflection(false)}
+                  aria-label="Tutup refleksi"
+                  className="rounded-full p-2 hover:bg-[#f0ece4]"
+                >
+                  <X size={19} />
+                </button>
+              </div>
+
+              {[
+                {
+                  key: 'good' as const,
+                  label: 'Yang berjalan baik',
+                  badgeClass: 'bg-[#4ADE80] text-[#14532d]',
+                  placeholder: 'Hal-hal yang patut disyukuri pekan ini...',
+                },
+                {
+                  key: 'improve' as const,
+                  label: 'Perlu dievaluasi',
+                  badgeClass: 'bg-[#FFB5A7] text-[#252525]',
+                  placeholder: 'Kendala atau rutinitas yang perlu diperbaiki...',
+                },
+                {
+                  key: 'next' as const,
+                  label: 'Fokus berikutnya',
+                  badgeClass: 'bg-[#FFE69A] text-[#252525]',
+                  placeholder: 'Prioritas utama untuk pekan depan...',
+                },
+              ].map((item) => (
+                <div key={item.key} className="space-y-2">
+                  <label className="inline-block">
+                    <span
+                      className={`inline-block rounded-lg border-[1.5px] border-[#252525] px-2.5 py-1 text-xs font-extrabold ${item.badgeClass}`}
+                    >
+                      {item.label}
+                    </span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder={item.placeholder}
+                    value={draftReflection[item.key]}
+                    onChange={(event) =>
+                      setDraftReflection((current) => ({
+                        ...current,
+                        [item.key]: event.target.value,
+                      }))
+                    }
+                    className="w-full resize-none rounded-xl border-2 border-[#252525] bg-white p-3 text-sm text-[#252525] outline-none transition placeholder:text-[#9c9489] focus:bg-[#fffdf7] focus:shadow-[3px_3px_0_#252525]"
+                  />
+                </div>
+              ))}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingReflection(false)}
+                  className="rounded-xl px-4 py-3 text-xs font-semibold text-[#77716a] hover:bg-[#f0ece4]"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  data-sound="success"
+                  onClick={saveReflection}
+                  className="flex-1 rounded-xl border-2 border-[#252525] bg-[#252525] px-5 py-3 text-xs font-bold text-white shadow-[3px_3px_0_#fae195] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none sm:flex-none"
+                >
+                  Simpan Refleksi
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

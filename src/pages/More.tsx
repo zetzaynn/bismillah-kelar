@@ -1,6 +1,6 @@
-
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type ElementType,
@@ -10,7 +10,6 @@ import {
 import { createPortal } from 'react-dom'
 
 import {
-  UserRound,
   Languages,
   CalendarDays,
   Clock3,
@@ -21,7 +20,6 @@ import {
   Heart,
   Target,
   Coffee,
-  Hand,
   Database,
   Download,
   Upload,
@@ -30,6 +28,7 @@ import {
   ShieldCheck,
   MessageSquare,
   ChevronRight,
+  ChevronDown,
   Check,
   Sparkles,
   X,
@@ -40,12 +39,17 @@ import {
   Play,
   Square,
   LoaderCircle,
+  Pencil,
 } from 'lucide-react'
 
 import { useAppData } from '../hooks/AppContext'
 import type { AppData } from '../types/app'
-
+import { DEFAULT_PROFILE_PHOTO_URL } from '../components/layout/AppHeader'
 import {
+  DEFAULT_ALARM_TONE_KEY,
+  DEFAULT_ALARM_TONES,
+  type DefaultToneId,
+  type SelectedToneId,
   getTimerSound,
   saveTimerSound,
   deleteTimerSound,
@@ -54,6 +58,120 @@ import {
 } from '../lib/audioStorage'
 
 const INTERACTION_SOUND_KEY = 'bismillah-kelar-interaction-sound'
+const defaultAlarmTones = Object.values(DEFAULT_ALARM_TONES)
+function MarqueeText({
+  text,
+  className = '',
+}: {
+  text: string
+  className?: string
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLSpanElement>(null)
+  const rawId = useId()
+  const animName = `marquee-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`
+
+  const [metrics, setMetrics] = useState<{
+    overflow: boolean
+    shift: number
+    totalDuration: number
+    pausePercent: number
+  }>({
+    overflow: false,
+    shift: 0,
+    totalDuration: 0,
+    pausePercent: 0,
+  })
+
+  const gap = 36
+
+  useEffect(() => {
+    const container = containerRef.current
+    const textEl = textRef.current
+    if (!container || !textEl) return
+
+    const measure = () => {
+      const containerWidth = container.clientWidth
+      const textWidth = textEl.scrollWidth
+
+      if (containerWidth > 0 && textWidth > containerWidth + 1) {
+        const shift = textWidth + gap
+        const pauseSeconds = 2
+        const scrollSeconds = Math.max(3, shift / 38)
+        const totalDuration = pauseSeconds + scrollSeconds
+        const pausePercent = Number(
+          ((pauseSeconds / totalDuration) * 100).toFixed(2),
+        )
+
+        setMetrics({
+          overflow: true,
+          shift,
+          totalDuration,
+          pausePercent,
+        })
+      } else {
+        setMetrics((prev) =>
+          prev.overflow
+            ? { overflow: false, shift: 0, totalDuration: 0, pausePercent: 0 }
+            : prev,
+        )
+      }
+    }
+
+    measure()
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    observer.observe(textEl)
+
+    return () => observer.disconnect()
+  }, [text])
+
+  return (
+    <div
+      ref={containerRef}
+      className={`min-w-0 flex-1 overflow-hidden ${className}`}
+    >
+      {metrics.overflow && (
+        <style>{`
+          @keyframes ${animName} {
+            0%, ${metrics.pausePercent}% {
+              transform: translate3d(0, 0, 0);
+            }
+            100% {
+              transform: translate3d(-${metrics.shift}px, 0, 0);
+            }
+          }
+        `}</style>
+      )}
+
+      <div
+        className="inline-flex whitespace-nowrap will-change-transform"
+        style={
+          metrics.overflow
+            ? {
+                animation: `${animName} ${metrics.totalDuration.toFixed(2)}s linear infinite`,
+              }
+            : undefined
+        }
+      >
+        <span ref={textRef} className="inline-block whitespace-nowrap">
+          {text}
+        </span>
+
+        {metrics.overflow && (
+          <span
+            aria-hidden="true"
+            className="inline-block whitespace-nowrap"
+            style={{ paddingLeft: `${gap}px` }}
+          >
+            {text}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
 
 type SettingItemProps = {
   icon: ElementType
@@ -132,8 +250,8 @@ function ToggleItem({
         role="switch"
         aria-checked={checked}
         onClick={onChange}
-        className={`relative h-6 w-12 shrink-0 rounded-full border border-[#252525] p-0.5 shadow-[2px_2px_0px_#252525] transition ${
-          checked ? 'bg-[#BDECCF]' : 'bg-[#e6dfd5]'
+        className={`relative h-6 w-12 shrink-0 rounded-full border-[1.5px] border-[#252525] p-0.5 shadow-[2px_2px_0px_#252525] transition ${
+          checked ? 'bg-[#4ADE80]' : 'bg-[#EF4444]'
         }`}
       >
         <span
@@ -159,6 +277,7 @@ type InfoKey =
 
 type MoreProps = {
   onEditProfile: () => void
+  scrollToNotificationsTick?: number
 }
 
 const infoContent: Record<
@@ -184,9 +303,9 @@ const infoContent: Record<
     icon: Clock3,
   },
   version: {
-    title: 'Bismillah Kelar v0.1.0',
+    title: 'Bismillah Kelar v0.9.5',
     description:
-      'Bismillah Kelar masih dalam tahap pengembangan. Aplikasi ini dibangun untuk membantu mengelola tugas, agenda, fokus, dan progres harian dalam satu ruang produktivitas pribadi.',
+      'Bismillah Kelar masih dalam tahap pengembangan. Aplikasi ini dibangun untuk membantu mengelola target dan tugas, agenda, fokus, dan progres harian dalam satu ruang produktivitas pribadi.',
     icon: Info,
   },
   privacy: {
@@ -198,7 +317,7 @@ const infoContent: Record<
   cache: {
     title: 'Cache Sementara',
     description:
-      'Bismillah Kelar belum menggunakan penyimpanan cache khusus. Data tugas, agenda, dan pengaturan tidak akan dihapus melalui fitur ini. Gunakan ekspor data untuk membuat salinan cadangan.',
+      'Bismillah Kelar belum menggunakan penyimpanan cache khusus. Data target dan tugas, agenda, dan pengaturan tidak akan dihapus melalui fitur ini. Gunakan ekspor data untuk membuat salinan cadangan.',
     icon: Trash2,
   },
   feedback: {
@@ -275,7 +394,10 @@ function isValidBackup(value: unknown): value is AppData {
   return validAgenda
 }
 
-export default function More({ onEditProfile }: MoreProps) {
+export default function More({
+  onEditProfile,
+  scrollToNotificationsTick = 0,
+}: MoreProps) {
   const {
     data,
     profilePhotoUrl,
@@ -284,6 +406,7 @@ export default function More({ onEditProfile }: MoreProps) {
   } = useAppData()
 
   const profileName = data.profile.name.trim() || 'Teman'
+  const avatarSrc = profilePhotoUrl || DEFAULT_PROFILE_PHOTO_URL
 
   const {
     notifications,
@@ -295,16 +418,18 @@ export default function More({ onEditProfile }: MoreProps) {
   } = data.settings
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const [showGreetingEditor, setShowGreetingEditor] = useState(false)
-  const [draftGreeting, setDraftGreeting] = useState(greeting)
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const notificationsSectionRef = useRef<HTMLElement>(null)
 
   const [activeOption, setActiveOption] = useState<OptionKey | null>(null)
+  const [draftPreset, setDraftPreset] = useState<string | null>(null)
   const [customValue, setCustomValue] = useState('')
   const [customError, setCustomError] = useState('')
 
   const [activeInfo, setActiveInfo] = useState<InfoKey | null>(null)
   const [feedbackText, setFeedbackText] = useState('')
+  const [showLocalStorageDetail, setShowLocalStorageDetail] = useState(false)
+  const [showPrayerEasterEgg, setShowPrayerEasterEgg] = useState(false)
 
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false)
   const [pendingBackup, setPendingBackup] = useState<AppData | null>(null)
@@ -314,22 +439,59 @@ export default function More({ onEditProfile }: MoreProps) {
     message: string
   } | null>(null)
 
-  // Audio states
+  const [selectedTone, setSelectedTone] = useState<SelectedToneId>(
+    () => {
+      const saved = localStorage.getItem(DEFAULT_ALARM_TONE_KEY)
+      if (
+        saved === 'tone-2' ||
+        saved === 'tone-3' ||
+        saved === 'custom'
+      ) {
+        return saved
+      }
+      return 'tone-1'
+    },
+  )
+
   const [soundName, setSoundName] = useState<string | null>(null)
   const [soundLoading, setSoundLoading] = useState(true)
   const [soundProcessing, setSoundProcessing] = useState(false)
   const [isPreviewing, setIsPreviewing] = useState(false)
+  const isPreviewingRef = useRef(false)
 
-  // Interaction sound state
   const [interactionSound, setInteractionSound] = useState(
     () => localStorage.getItem(INTERACTION_SOUND_KEY) !== 'false',
   )
+
+  // Animasi scroll otomatis dari kartu profil atas ke tengah bagian Notifikasi & Pengingat
+  useEffect(() => {
+    if (!scrollToNotificationsTick) return
+
+    window.scrollTo({ top: 0, behavior: 'auto' })
+
+    const timer = window.setTimeout(() => {
+      notificationsSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    }, 320)
+
+    return () => window.clearTimeout(timer)
+  }, [scrollToNotificationsTick])
 
   const showNotice = (
     message: string,
     type: 'success' | 'error' = 'success',
   ) => {
     setNotice({ message, type })
+  }
+
+  const stopDefaultPreview = () => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause()
+      previewAudioRef.current.currentTime = 0
+      previewAudioRef.current = null
+    }
   }
 
   useEffect(() => {
@@ -340,7 +502,13 @@ export default function More({ onEditProfile }: MoreProps) {
         const sound = await getTimerSound()
 
         if (active) {
-          setSoundName(sound?.name ?? null)
+          const loadedName = sound?.name ?? null
+          setSoundName(loadedName)
+
+          if (!loadedName && localStorage.getItem(DEFAULT_ALARM_TONE_KEY) === 'custom') {
+            setSelectedTone('tone-1')
+            localStorage.setItem(DEFAULT_ALARM_TONE_KEY, 'tone-1')
+          }
         }
       } catch {
         if (active) {
@@ -361,10 +529,16 @@ export default function More({ onEditProfile }: MoreProps) {
     }
   }, [])
 
-  // Hentikan preview ketika halaman ditinggalkan
+  useEffect(() => {
+    isPreviewingRef.current = isPreviewing
+  }, [isPreviewing])
+
   useEffect(() => {
     return () => {
-      stopTimerEndSound()
+      if (isPreviewingRef.current) {
+        stopTimerEndSound()
+        stopDefaultPreview()
+      }
     }
   }, [])
 
@@ -403,7 +577,14 @@ export default function More({ onEditProfile }: MoreProps) {
       title: 'Durasi Standar Fokus',
       description: 'Pilih durasi untuk satu sesi fokus.',
       current: focusDuration,
-      options: ['15 Menit', '25 Menit', '30 Menit', '45 Menit', '60 Menit'],
+      options: [
+        '15 Menit',
+        '25 Menit',
+        '30 Menit',
+        '45 Menit',
+        '60 Menit',
+        '90 Menit',
+      ],
       unit: 'Menit',
       label: 'Durasi fokus',
       min: 1,
@@ -414,7 +595,7 @@ export default function More({ onEditProfile }: MoreProps) {
       title: 'Istirahat Singkat',
       description: 'Pilih jeda antar sesi fokus.',
       current: breakDuration,
-      options: ['5 Menit', '10 Menit', '15 Menit'],
+      options: ['5 Menit', '10 Menit', '15 Menit', '20 Menit'],
       unit: 'Menit',
       label: 'Durasi istirahat',
       min: 1,
@@ -422,10 +603,15 @@ export default function More({ onEditProfile }: MoreProps) {
       save: (value) => updateSettings({ breakDuration: value }),
     },
     target: {
-      title: 'Target Tugas Harian',
+      title: 'Target Harian',
       description: 'Tentukan jumlah target yang ingin diselesaikan.',
       current: dailyTarget,
-      options: ['1 - 2 Target', '3 - 5 Target', '6 - 8 Target'],
+      options: [
+        '1 - 2 Target',
+        '3 - 5 Target',
+        '6 - 8 Target',
+        '9 - 10 Target',
+      ],
       unit: 'Target',
       label: 'Jumlah target harian',
       min: 1,
@@ -439,10 +625,13 @@ export default function More({ onEditProfile }: MoreProps) {
     : null
 
   const openOption = (key: OptionKey) => {
-    const current = optionSettings[key].current
-    const number = current.match(/\d+/)?.[0] ?? ''
+    const setting = optionSettings[key]
+    const isPreset = setting.options.includes(setting.current)
 
-    setCustomValue(number)
+    setDraftPreset(isPreset ? setting.current : null)
+    setCustomValue(
+      isPreset ? '' : (setting.current.match(/\d+/)?.[0] ?? ''),
+    )
     setCustomError('')
     setActiveOption(key)
   }
@@ -458,23 +647,22 @@ export default function More({ onEditProfile }: MoreProps) {
     })
   }
 
-  const saveGreeting = () => {
-    if (!draftGreeting.trim()) return
-
-    updateSettings({
-      greeting: draftGreeting.trim(),
-    })
-
-    setShowGreetingEditor(false)
-    showNotice('Sapaan beranda berhasil diperbarui.')
-  }
-
   const saveCustomOption = () => {
     if (!selectedOption) return
+
+    if (draftPreset) {
+      selectedOption.save(draftPreset)
+      setActiveOption(null)
+      setDraftPreset(null)
+      setCustomError('')
+      showNotice('Personalisasi berhasil disimpan.')
+      return
+    }
 
     const value = Number(customValue)
 
     if (
+      !customValue.trim() ||
       !Number.isInteger(value) ||
       value < selectedOption.min ||
       value > selectedOption.max
@@ -487,11 +675,27 @@ export default function More({ onEditProfile }: MoreProps) {
 
     selectedOption.save(`${value} ${selectedOption.unit}`)
     setActiveOption(null)
+    setDraftPreset(null)
     setCustomError('')
     showNotice('Personalisasi berhasil disimpan.')
   }
 
-  // Impor MP3
+  const selectTone = (toneId: SelectedToneId) => {
+    stopTimerEndSound()
+    stopDefaultPreview()
+    setIsPreviewing(false)
+
+    setSelectedTone(toneId)
+    localStorage.setItem(DEFAULT_ALARM_TONE_KEY, toneId)
+
+    if (toneId === 'custom') {
+      showNotice(`Nada alarm diubah ke ${soundName ?? 'MP3 kustom'}.`)
+    } else {
+      const chosen = defaultAlarmTones.find((tone) => tone.id === toneId)
+      showNotice(`Nada alarm diubah ke ${chosen?.name ?? 'nada default'}.`)
+    }
+  }
+
   const handleSoundFile = async (
     event: ChangeEvent<HTMLInputElement>,
   ) => {
@@ -520,10 +724,13 @@ export default function More({ onEditProfile }: MoreProps) {
 
     try {
       stopTimerEndSound()
+      stopDefaultPreview()
       setIsPreviewing(false)
 
       await saveTimerSound(file)
       setSoundName(file.name)
+      setSelectedTone('custom')
+      localStorage.setItem(DEFAULT_ALARM_TONE_KEY, 'custom')
       showNotice('Suara timer berhasil disimpan.')
     } catch {
       showNotice('Gagal menyimpan file MP3.', 'error')
@@ -533,21 +740,50 @@ export default function More({ onEditProfile }: MoreProps) {
     }
   }
 
-  // Preview MP3
-  const previewSound = () => {
-    if (!soundName) {
-      showNotice('Impor MP3 terlebih dahulu.', 'error')
-      return
+  const playDefaultTonePreview = async (toneId: DefaultToneId) => {
+    stopDefaultPreview()
+
+    const tone =
+      defaultAlarmTones.find((item) => item.id === toneId) ??
+      defaultAlarmTones[0]
+
+    const audio = new Audio(tone.url)
+    audio.volume = Math.min(1, Math.max(0, soundVolume))
+    previewAudioRef.current = audio
+
+    audio.onended = () => {
+      setIsPreviewing(false)
+      previewAudioRef.current = null
     }
 
+    try {
+      await audio.play()
+      setIsPreviewing(true)
+      showNotice(`Memutar preview: ${tone.name}`)
+    } catch {
+      setIsPreviewing(false)
+      previewAudioRef.current = null
+      showNotice('Preview audio gagal diputar.', 'error')
+    }
+  }
+
+  const previewSound = async () => {
     if (isPreviewing) {
       stopTimerEndSound()
+      stopDefaultPreview()
       setIsPreviewing(false)
       return
     }
 
+    if (selectedTone !== 'custom' || !soundName) {
+      const toneToPlay: DefaultToneId =
+        selectedTone === 'custom' ? 'tone-1' : selectedTone
+      await playDefaultTonePreview(toneToPlay)
+      return
+    }
+
     try {
-      const started = playTimerEndSound(
+      const started = await playTimerEndSound(
         soundVolume,
         setIsPreviewing,
       )
@@ -558,24 +794,28 @@ export default function More({ onEditProfile }: MoreProps) {
         return
       }
 
-      showNotice('Preview audio diputar.')
+      showNotice(`Memutar preview: ${soundName}`)
     } catch {
       setIsPreviewing(false)
       showNotice('Preview audio gagal diputar.', 'error')
     }
   }
 
-  // Hapus MP3
   const removeSound = async () => {
     setSoundProcessing(true)
 
     try {
       stopTimerEndSound()
+      stopDefaultPreview()
       setIsPreviewing(false)
 
       await deleteTimerSound()
       setSoundName(null)
-      showNotice('MP3 dihapus. Suara bawaan akan digunakan.')
+      if (selectedTone === 'custom') {
+        setSelectedTone('tone-1')
+        localStorage.setItem(DEFAULT_ALARM_TONE_KEY, 'tone-1')
+      }
+      showNotice('MP3 dihapus. Nada bawaan aktif kembali.')
     } catch {
       showNotice('Gagal menghapus file MP3.', 'error')
     } finally {
@@ -583,8 +823,11 @@ export default function More({ onEditProfile }: MoreProps) {
     }
   }
 
-  // Atur volume timer
   const handleVolumeChange = (value: number) => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.volume = Math.min(1, Math.max(0, value))
+    }
+
     updateSettings({
       soundVolume: value,
     })
@@ -656,23 +899,24 @@ export default function More({ onEditProfile }: MoreProps) {
     showNotice('Data berhasil dipulihkan dari backup.')
   }
 
-const sendFeedback = () => {
-  const message = feedbackText.trim()
+  const sendFeedback = () => {
+    const message = feedbackText.trim()
 
-  if (!message) return
+    if (!message) return
 
-  const recipient = 'zetzayn@students.unnes.ac.id'
-  const subject = encodeURIComponent(
-    'Umpan Balik Bismillah Kelar',
-  )
-  const body = encodeURIComponent(message)
+    const recipient = 'zetzayn@students.unnes.ac.id'
+    const subject = encodeURIComponent(
+      'Umpan Balik Bismillah Kelar',
+    )
+    const body = encodeURIComponent(message)
 
-  window.location.href =
-    `mailto:${recipient}?subject=${subject}&body=${body}`
+    window.location.href =
+      `mailto:${recipient}?subject=${subject}&body=${body}`
 
-  setActiveInfo(null)
-  setFeedbackText('')
-}
+    setActiveInfo(null)
+    setFeedbackText('')
+  }
+
   return (
     <div className="space-y-7 pb-5">
       {notice && (
@@ -699,46 +943,43 @@ const sendFeedback = () => {
         </div>
       )}
 
-      {/* PROFILE */}
+      {/* KARTU PROFIL ATAS */}
       <button
         type="button"
         onClick={onEditProfile}
-        aria-label="Edit profil pengguna"
-        className="block w-full rounded-2xl border border-[#252525] bg-[#D9CCFF] p-4 text-left shadow-[3px_3px_0px_#252525] transition hover:brightness-[0.98] active:translate-y-0.5 active:shadow-none"
+        aria-label="Edit profil dan sapaan beranda"
+        className="block w-full rounded-2xl border-2 border-[#252525] bg-[#D9CCFF] p-4 text-left shadow-[3px_3px_0px_#252525] transition hover:brightness-[0.98] active:translate-y-0.5 active:shadow-none"
       >
-        <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[#252525] bg-[#fffaf1]">
-            {profilePhotoUrl ? (
-              <img
-                src={profilePhotoUrl}
-                alt={`Foto profil ${profileName}`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <UserRound size={27} />
-            )}
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-2 border-[#252525] bg-[#fffaf1]">
+            <img
+              src={avatarSrc}
+              alt={`Foto profil ${profileName}`}
+              className="h-full w-full object-cover"
+            />
           </div>
 
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-[#51476b]">
-              Ruang produktivitas pribadi
-            </p>
-            <h2 className="truncate text-xl font-extrabold">
+            <h2 className="truncate text-2xl font-black tracking-tight text-[#252525]">
               {profileName}
             </h2>
-            <p className="text-xs text-[#51476b]">
-              Satu langkah kecil setiap hari.
+            <p className="mt-0.5 text-xs font-medium text-[#51476b]">
+              Ketuk untuk edit profil &amp; sapaan
             </p>
           </div>
 
-          <Sparkles size={22} />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[#252525] bg-white/85">
+            <Pencil size={15} />
+          </span>
         </div>
 
-        <div className="mt-4 rounded-xl bg-white/50 px-3 py-2">
-          <p className="text-xs font-medium text-[#51476b]">
+        <div className="mt-4 rounded-xl border border-[#252525]/20 bg-white/75 px-3 py-2.5">
+          <p className="text-[11px] font-bold text-[#51476b]">
             Sapaan beranda
           </p>
-          <p className="text-sm font-bold">{greeting}</p>
+          <p className="mt-0.5 text-sm font-extrabold text-[#252525]">
+            {greeting}
+          </p>
         </div>
       </button>
 
@@ -775,21 +1016,18 @@ const sendFeedback = () => {
         </div>
       </section>
 
-      {/* NOTIFICATIONS */}
-      <section>
+      {/* NOTIFICATIONS (Target Auto-Scroll ke Tengah Layar) */}
+      <section ref={notificationsSectionRef} className="scroll-my-24">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#8b8177]">
-            Notifikasi & Pengingat
+            Notifikasi &amp; Pengingat
           </h3>
-          <span className="text-[10px] text-[#8b8177]">
-            Atur preferensimu
-          </span>
         </div>
 
         <div className="divide-y divide-[#eee8df]">
           <ToggleItem
             icon={Sunrise}
-            title="Pengingat Tugas Harian"
+            title="Pengingat Target Harian"
             description="Pukul 07:00 WIB"
             checked={notifications.daily}
             onChange={() => toggleNotification('daily')}
@@ -829,15 +1067,14 @@ const sendFeedback = () => {
         </div>
 
         <p className="mt-2 rounded-xl bg-[#fff2d5] p-3 text-xs leading-relaxed text-[#77664a]">
-          Preferensi pengingat tersimpan di perangkat. Notifikasi
-          perangkat belum diaktifkan.
+          Preferensi pengingat tersimpan di perangkat dan tampil di ikon lonceng header.
         </p>
       </section>
 
       {/* FOCUS SETTINGS */}
       <section>
         <h3 className="mb-2 text-xs font-extrabold uppercase tracking-wider text-[#8b8177]">
-          Personalisasi Fokus & Target
+          Personalisasi Fokus &amp; Target
         </h3>
 
         <div className="divide-y divide-[#eee8df]">
@@ -864,26 +1101,16 @@ const sendFeedback = () => {
             value={dailyTarget}
             onClick={() => openOption('target')}
           />
-
-          <SettingItem
-            icon={Hand}
-            title="Sapaan Beranda"
-            description={greeting}
-            onClick={() => {
-              setDraftGreeting(greeting)
-              setShowGreetingEditor(true)
-            }}
-          />
         </div>
       </section>
 
-      {/* TIMER SOUND */}
+      {/* NADA ALARM POMODORO */}
       <section>
         <h3 className="mb-2 text-xs font-extrabold uppercase tracking-wider text-[#8b8177]">
-          Suara Timer Pomodoro
+          Nada Alarm Pomodoro
         </h3>
 
-        <div className="rounded-2xl border border-[#252525] bg-[#D9CCFF] p-4 shadow-[3px_3px_0px_#252525]">
+        <div className="rounded-2xl border-2 border-[#252525] bg-[#D9CCFF] p-4 shadow-[3px_3px_0px_#252525]">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#252525] bg-white">
               <Music size={21} />
@@ -894,40 +1121,72 @@ const sendFeedback = () => {
                 Suara saat sesi selesai
               </p>
               <p className="text-xs text-[#625779]">
-                Gunakan MP3 pilihanmu sendiri
+                Pilih nada default atau impor MP3 sendiri
               </p>
             </div>
           </div>
 
-          {/* ACTIVE AUDIO */}
-          <div className="mt-4 rounded-xl border border-[#252525]/20 bg-white/60 p-3">
-            <p className="text-xs font-bold text-[#625779]">
-              FILE AUDIO AKTIF
+          <div className="mt-4 rounded-xl border border-[#252525]/20 bg-white/75 p-3">
+            <p className="mb-2 text-xs font-extrabold text-[#51476b]">
+              PILIHAN NADA ALARM
             </p>
 
-            {soundLoading ? (
-              <p className="mt-2 text-xs text-[#888078]">
-                Memeriksa penyimpanan audio...
-              </p>
-            ) : soundName ? (
-              <div className="mt-2 flex items-center gap-2">
-                <Music size={16} className="shrink-0" />
-                <p className="min-w-0 flex-1 truncate text-sm font-bold">
-                  {soundName}
-                </p>
-                <span className="rounded-lg bg-[#BDECCF] px-2 py-1 text-[10px] font-bold">
-                  MP3
-                </span>
-              </div>
-            ) : (
-              <p className="mt-2 text-xs text-[#777078]">
-                Belum ada MP3. Aplikasi menggunakan suara beep bawaan.
-              </p>
-            )}
+            <div className="space-y-1.5">
+              {defaultAlarmTones.map((tone) => {
+                const isSelected = selectedTone === tone.id
+
+                return (
+                  <button
+                    key={tone.id}
+                    type="button"
+                    disabled={soundProcessing || soundLoading}
+                    onClick={() => selectTone(tone.id)}
+                    className={`flex w-full items-center justify-between gap-2.5 rounded-xl border-[1.5px] px-3 py-2 text-left text-xs font-bold transition ${
+                      isSelected
+                        ? 'border-[#252525] bg-[#4ADE80] text-[#14532d] shadow-[2px_2px_0_#252525]'
+                        : 'border-[#252525]/25 bg-white text-[#252525] hover:border-[#252525]'
+                    }`}
+                  >
+                    <MarqueeText text={tone.name} />
+                    {isSelected && (
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#252525] bg-white text-[#252525]">
+                        <Check size={12} strokeWidth={2.8} />
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+
+              {soundName && (
+                <button
+                  type="button"
+                  disabled={soundProcessing || soundLoading}
+                  onClick={() => selectTone('custom')}
+                  className={`flex w-full items-center justify-between gap-2 rounded-xl border-[1.5px] px-3 py-2 text-left text-xs font-bold transition ${
+                    selectedTone === 'custom'
+                      ? 'border-[#252525] bg-[#4ADE80] text-[#14532d] shadow-[2px_2px_0_#252525]'
+                      : 'border-[#252525]/25 bg-white text-[#252525] hover:border-[#252525]'
+                  }`}
+                >
+                  <MarqueeText text={soundName} />
+
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <span className="rounded-md border border-[#252525] bg-[#4ADE80] px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#14532d]">
+                      MP3
+                    </span>
+
+                    {selectedTone === 'custom' && (
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full border border-[#252525] bg-white text-[#252525]">
+                        <Check size={12} strokeWidth={2.8} />
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* VOLUME SLIDER */}
-          <div className="mt-4 rounded-xl border border-[#252525]/20 bg-white/60 p-3">
+          <div className="mt-3 rounded-xl border border-[#252525]/20 bg-white/75 p-3">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Volume2 size={17} />
@@ -936,7 +1195,7 @@ const sendFeedback = () => {
                 </p>
               </div>
 
-              <span className="rounded-lg bg-[#BDECCF] px-2 py-1 text-xs font-extrabold tabular-nums">
+              <span className="rounded-lg border border-[#252525] bg-[#4ADE80] px-2 py-0.5 text-xs font-extrabold tabular-nums text-[#14532d]">
                 {Math.round(soundVolume * 100)}%
               </span>
             </div>
@@ -950,7 +1209,12 @@ const sendFeedback = () => {
               onChange={(event) =>
                 handleVolumeChange(Number(event.target.value))
               }
-              className="h-2 w-full cursor-pointer accent-[#625779]"
+              style={{
+                background: `linear-gradient(to right, #4ADE80 0%, #4ADE80 ${
+                  soundVolume * 100
+                }%, #e5dfd5 ${soundVolume * 100}%, #e5dfd5 100%)`,
+              }}
+              className="h-2.5 w-full cursor-pointer appearance-none rounded-full border border-[#252525] accent-[#4ADE80]"
               aria-label="Volume suara timer"
             />
 
@@ -959,11 +1223,6 @@ const sendFeedback = () => {
               <span>50%</span>
               <span>Maksimal</span>
             </div>
-
-            <p className="mt-3 text-[11px] leading-relaxed text-[#756b80]">
-              Volume ini berlaku untuk suara MP3 maupun suara timer
-              bawaan ketika sesi Pomodoro selesai.
-            </p>
           </div>
 
           <input
@@ -974,13 +1233,12 @@ const sendFeedback = () => {
             onChange={handleSoundFile}
           />
 
-          {/* AUDIO ACTIONS */}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               disabled={soundProcessing || soundLoading}
               onClick={() => fileInputRef.current?.click()}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#252525] bg-white px-3 py-2.5 text-xs font-extrabold shadow-[2px_2px_0px_#252525] transition active:translate-y-0.5 active:shadow-none disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border-[1.5px] border-[#252525] bg-white px-3 py-2.5 text-xs font-extrabold shadow-[2px_2px_0px_#252525] transition active:translate-y-0.5 active:shadow-none disabled:opacity-50"
             >
               {soundProcessing ? (
                 <LoaderCircle size={16} className="animate-spin" />
@@ -992,9 +1250,9 @@ const sendFeedback = () => {
 
             <button
               type="button"
-              disabled={!soundName || soundProcessing || soundLoading}
+              disabled={soundProcessing || soundLoading}
               onClick={previewSound}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#252525] bg-[#BDECCF] px-3 py-2.5 text-xs font-extrabold shadow-[2px_2px_0px_#252525] transition active:translate-y-0.5 active:shadow-none disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border-[1.5px] border-[#252525] bg-[#4ADE80] px-3 py-2.5 text-xs font-extrabold text-[#14532d] shadow-[2px_2px_0px_#252525] transition hover:bg-[#3ad170] active:translate-y-0.5 active:shadow-none disabled:opacity-50"
             >
               {isPreviewing ? (
                 <Square size={15} />
@@ -1010,29 +1268,22 @@ const sendFeedback = () => {
               type="button"
               disabled={soundProcessing}
               onClick={removeSound}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#252525] bg-[#fff0ec] px-3 py-2.5 text-xs font-bold text-[#8b4436] transition hover:bg-[#ffe3dc] disabled:opacity-50"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#252525] bg-[#EF4444] px-3 py-2.5 text-xs font-extrabold text-white shadow-[2px_2px_0_#252525] transition hover:bg-[#DC2626] active:translate-y-0.5 active:shadow-none disabled:opacity-50"
             >
               <Trash2 size={15} />
               Hapus MP3
             </button>
           )}
         </div>
-
-        <p className="mt-2 rounded-xl bg-[#fff2d5] p-3 text-xs leading-relaxed text-[#77664a]">
-          File MP3 disimpan di IndexedDB browser pada perangkat ini,
-          terpisah dari backup JSON. Suara digunakan saat sesi fokus
-          maupun istirahat selesai. Kamu dapat mengatur volumenya dan
-          menghentikan preview kapan saja.
-        </p>
       </section>
 
-      {/* INTERACTION SOUND */}
+      {/* EFEK SUARA APLIKASI */}
       <section>
         <h3 className="mb-2 text-xs font-extrabold uppercase tracking-wider text-[#8b8177]">
           Efek Suara Aplikasi
         </h3>
 
-        <div className="rounded-2xl border border-[#252525] bg-[#FFE69A] p-3 shadow-[3px_3px_0px_#252525]">
+        <div className="rounded-2xl border-2 border-[#252525] bg-[#FFE69A] p-3 shadow-[3px_3px_0px_#252525]">
           <ToggleItem
             icon={Volume2}
             title="Suara Interaksi"
@@ -1040,44 +1291,56 @@ const sendFeedback = () => {
             checked={interactionSound}
             onChange={toggleInteractionSound}
           />
-
-          <div className="mx-2 border-t border-[#252525]/15 pt-3">
-            <div className="flex items-center gap-2 text-xs text-[#75664e]">
-              <Info size={15} />
-              <p>
-                {interactionSound
-                  ? 'Efek suara interaksi sedang aktif.'
-                  : 'Efek suara interaksi sedang dinonaktifkan.'}
-              </p>
-            </div>
-          </div>
         </div>
-
-        <p className="mt-2 rounded-xl bg-[#fff2d5] p-3 text-xs leading-relaxed text-[#77664a]">
-          Pengaturan ini hanya mengontrol suara interaksi antarmuka.
-          Suara timer Pomodoro tetap mengikuti pengaturan audio timer.
-        </p>
       </section>
 
-      {/* DATA */}
+      {/* DATA & CADANGAN */}
       <section>
         <h3 className="mb-2 text-xs font-extrabold uppercase tracking-wider text-[#8b8177]">
-          Data & Cadangan
+          Data &amp; Cadangan
         </h3>
 
-        <div className="rounded-2xl border border-[#252525] bg-[#BDECCF] p-4 shadow-[3px_3px_0px_#252525]">
-          <div className="flex items-center gap-2">
-            <Database size={19} />
-            <p className="text-sm font-extrabold">
-              Penyimpanan lokal
-            </p>
+        <button
+          type="button"
+          onClick={() => setShowLocalStorageDetail((current) => !current)}
+          aria-expanded={showLocalStorageDetail}
+          className="w-full rounded-2xl border-2 border-[#252525] bg-[#BDECCF] p-4 text-left shadow-[3px_3px_0px_#252525] transition hover:brightness-[0.98] active:translate-y-0.5 active:shadow-none"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#252525] bg-white px-3 py-1 text-xs font-extrabold text-[#1e4620]">
+              <Database size={15} />
+              Penyimpanan Lokal
+            </span>
+
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1e4620]">
+              {showLocalStorageDetail ? 'Tutup detail' : 'Cara kerja'}
+              <ChevronDown
+                size={15}
+                className={`transition-transform ${
+                  showLocalStorageDetail ? 'rotate-180' : ''
+                }`}
+              />
+            </span>
           </div>
 
-          <p className="mt-2 text-xs leading-relaxed text-[#385a47]">
-            Data disimpan secara lokal pada perangkat ini melalui
-            penyimpanan browser. Data belum disinkronkan ke server.
+          <p className="mt-2.5 text-xs leading-relaxed text-[#234d2c]">
+            Data disimpan secara lokal pada perangkat ini melalui penyimpanan browser dan tetap bisa diakses penuh saat offline.
           </p>
-        </div>
+
+          {showLocalStorageDetail && (
+            <div className="mt-3 space-y-2 rounded-xl border border-[#252525]/25 bg-white/85 p-3 text-xs leading-relaxed text-[#252525]">
+              <p>
+                <strong>1. 100% Offline &amp; Privat:</strong> Target dan tugas, agenda kalender, progres, dan pengaturan tersimpan langsung di memori browser HP/laptop kamu tanpa dikirim ke server mana pun.
+              </p>
+              <p>
+                <strong>2. Media &amp; Audio Lokal:</strong> Foto profil kustom dan file audio MP3 disimpan di database perangkat (IndexedDB) agar tetap responsif tanpa internet.
+              </p>
+              <p>
+                <strong>3. Cadangan Berkala:</strong> Karena data berada di browser perangkat ini, gunakan tombol <em>Ekspor Data Pribadi</em> di bawah sebelum menghapus data browser atau berganti perangkat.
+              </p>
+            </div>
+          )}
+        </button>
 
         <input
           type="file"
@@ -1124,7 +1387,7 @@ const sendFeedback = () => {
             icon={Info}
             title="Versi Aplikasi"
             description="Versi pengembangan"
-            value="v0.1.0"
+            value="v0.9.5"
             onClick={() => setActiveInfo('version')}
           />
 
@@ -1136,22 +1399,34 @@ const sendFeedback = () => {
           />
         </div>
 
-        <div className="mt-3 rounded-2xl bg-[#fff2d5] p-4">
+        {/* Kartu Filosofi & Doa */}
+        <div
+          onClick={() => setShowPrayerEasterEgg((current) => !current)}
+          className="mt-3 rounded-2xl border border-[#252525]/20 bg-[#fff2d5] p-4"
+        >
           <div className="flex items-center gap-2">
-            <Heart size={18} />
-            <p className="text-sm font-extrabold">Filosofi & Doa</p>
+            <Heart
+              size={18}
+              className="fill-[#EF4444] text-[#EF4444]"
+            />
+            <p className="text-sm font-extrabold">Filosofi &amp; Doa</p>
           </div>
 
-          <p className="mt-2 text-xs leading-relaxed text-[#75664e]">
-            Dibuat dengan niat baik untuk menemani perjalanan belajarmu
-            hingga tuntas, satu tugas dalam satu waktu dengan tenang.
+          <p className="mt-2 text-xs leading-relaxed text-[#5c4c2e]">
+            Dirancang sebagai ruang tenang di tengah riuhnya hari—membantumu menuntaskan amanah satu demi satu, dengan hati yang lapang dan langkah yang terarah.
           </p>
+
+          {showPrayerEasterEgg && (
+            <p className="mt-2.5 text-xs font-medium text-[#5c4c2e]">
+              terima kasih telah berjuang /Z
+            </p>
+          )}
         </div>
 
         <button
           type="button"
           onClick={() => setActiveInfo('feedback')}
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[#252525] bg-[#FFE69A] px-4 py-3 text-sm font-extrabold shadow-[3px_3px_0px_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#252525] bg-[#FFE69A] px-4 py-3 text-sm font-extrabold shadow-[3px_3px_0px_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
         >
           <MessageSquare size={17} />
           Beri Umpan Balik
@@ -1167,7 +1442,7 @@ const sendFeedback = () => {
         </div>
 
         <p className="text-xs text-[#999188]">
-          Ditenagai ketekunan & doa {profileName}.
+          Ditenagai ketekunan &amp; doa {profileName}.
         </p>
 
         <p className="text-[10px] text-[#aaa198]">
@@ -1176,214 +1451,157 @@ const sendFeedback = () => {
       </footer>
 
       {/* OPTION MODAL */}
-      {selectedOption && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-5 py-6"
-          onClick={() => setActiveOption(null)}
-        >
+      {selectedOption &&
+        createPortal(
           <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="option-modal-title"
-            className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl border border-[#252525] bg-[#fffaf1] p-5 shadow-[4px_4px_0px_#252525]"
-            onClick={(event) => event.stopPropagation()}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-[#252525]/40 px-4 py-4 backdrop-blur-sm"
+            onClick={() => setActiveOption(null)}
           >
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h3
-                  id="option-modal-title"
-                  className="text-lg font-extrabold"
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="option-modal-title"
+              className="w-full max-w-sm rounded-2xl border-2 border-[#252525] bg-[#fffaf1] p-4 shadow-[5px_5px_0px_#252525]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <div>
+                  <h3
+                    id="option-modal-title"
+                    className="text-base font-extrabold"
+                  >
+                    {selectedOption.title}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-[#888078]">
+                    {selectedOption.description}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveOption(null)}
+                  aria-label="Tutup pilihan"
+                  className="rounded-lg p-1.5 transition hover:bg-[#eee8df]"
                 >
-                  {selectedOption.title}
-                </h3>
-                <p className="mt-1 text-xs text-[#888078]">
-                  {selectedOption.description}
-                </p>
+                  <X size={18} />
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setActiveOption(null)}
-                aria-label="Tutup pilihan"
-                className="rounded-lg p-1 transition hover:bg-[#eee8df]"
-              >
-                <X size={19} />
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                {selectedOption.options.map((option) => {
+                  const isSelected = draftPreset === option
+
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        setDraftPreset(option)
+                        setCustomValue('')
+                        setCustomError('')
+                      }}
+                      className={`flex items-center justify-between rounded-xl border-[1.5px] px-3 py-2.5 text-left transition ${
+                        isSelected
+                          ? 'border-[#252525] bg-[#BDECCF] shadow-[2px_2px_0px_#252525]'
+                          : 'border-[#e5ddd1] bg-white hover:border-[#252525] hover:bg-[#f5f0e7]'
+                      }`}
+                    >
+                      <span className="text-xs font-bold">{option}</span>
+
+                      {isSelected && (
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#252525] bg-white">
+                          <Check size={12} />
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="my-3 flex items-center gap-3">
+                <div className="h-px flex-1 bg-[#e5ddd1]" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#999188]">
+                  atau atur sendiri
+                </span>
+                <div className="h-px flex-1 bg-[#e5ddd1]" />
+              </div>
+
+              <label className="mb-1.5 block text-xs font-bold">
+                {selectedOption.label} ({selectedOption.min}–{selectedOption.max})
+              </label>
+
+              <div className="flex items-center gap-2">
+                <textarea
+                  rows={1}
+                  inputMode="numeric"
+                  enterKeyHint="done"
+                  value={customValue}
+                  onChange={(event) => {
+                    const digitsOnly = event.target.value.replace(/\D/g, '')
+                    setCustomValue(digitsOnly)
+                    setDraftPreset(null)
+                    setCustomError('')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      saveCustomOption()
+                    }
+                  }}
+                  placeholder="Masukkan angka"
+                  className="min-w-0 flex-1 resize-none overflow-x-auto whitespace-nowrap rounded-xl border-2 border-[#252525] bg-white px-3.5 py-2.5 text-sm font-bold text-[#252525] outline-none transition placeholder:font-normal placeholder:text-[#9c9489] focus:bg-[#fffdf7] focus:shadow-[3px_3px_0_#252525]"
+                />
+
+                <span className="rounded-xl border-[1.5px] border-[#252525] bg-[#eee8df] px-3 py-2.5 text-xs font-bold">
+                  {selectedOption.unit}
+                </span>
+              </div>
+
+              {customError && (
+                <p className="mt-1.5 text-xs font-semibold text-red-600">
+                  {customError}
+                </p>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveOption(null)}
+                  className="flex-1 rounded-xl border-[1.5px] border-[#252525] bg-white px-3 py-2.5 text-xs font-bold"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={saveCustomOption}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-[#252525] bg-[#BDECCF] px-3 py-2.5 text-xs font-bold shadow-[2px_2px_0px_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                >
+                  <Check size={15} />
+                  Simpan
+                </button>
+              </div>
             </div>
-
-            <p className="mb-2 text-xs font-bold text-[#888078]">
-              PILIHAN YANG TERSEDIA
-            </p>
-
-            <div className="space-y-2">
-              {selectedOption.options.map((option) => {
-                const isSelected = selectedOption.current === option
-
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => {
-                      selectedOption.save(option)
-                      setActiveOption(null)
-                      showNotice('Personalisasi berhasil disimpan.')
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
-                      isSelected
-                        ? 'border-[#252525] bg-[#BDECCF] shadow-[2px_2px_0px_#252525]'
-                        : 'border-[#e5ddd1] bg-white hover:bg-[#f5f0e7]'
-                    }`}
-                  >
-                    <span className="text-sm font-bold">{option}</span>
-
-                    {isSelected && (
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[#252525] bg-white">
-                        <Check size={15} />
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-
-            <div className="my-4 flex items-center gap-3">
-              <div className="h-px flex-1 bg-[#e5ddd1]" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#999188]">
-                atau atur sendiri
-              </span>
-              <div className="h-px flex-1 bg-[#e5ddd1]" />
-            </div>
-
-            <label className="mb-2 block text-xs font-bold">
-              {selectedOption.label}
-            </label>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={selectedOption.min}
-                max={selectedOption.max}
-                step={1}
-                value={customValue}
-                onChange={(event) => {
-                  setCustomValue(event.target.value)
-                  setCustomError('')
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') saveCustomOption()
-                }}
-                placeholder="Masukkan angka"
-                className="min-w-0 flex-1 rounded-xl border border-[#d8d0c5] bg-white px-3 py-3 text-sm outline-none focus:border-[#252525]"
-              />
-
-              <span className="rounded-xl bg-[#eee8df] px-3 py-3 text-xs font-bold">
-                {selectedOption.unit}
-              </span>
-            </div>
-
-            <p className="mt-1 text-[10px] text-[#999188]">
-              Masukkan angka {selectedOption.min}–{selectedOption.max}.
-            </p>
-
-            {customError && (
-              <p className="mt-2 text-xs font-semibold text-red-600">
-                {customError}
-              </p>
-            )}
-
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveOption(null)}
-                className="flex-1 rounded-xl border border-[#252525] px-3 py-2.5 text-sm font-bold"
-              >
-                Batal
-              </button>
-
-              <button
-                type="button"
-                onClick={saveCustomOption}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#252525] bg-[#BDECCF] px-3 py-2.5 text-sm font-bold shadow-[2px_2px_0px_#252525]"
-              >
-                <Check size={16} />
-                Simpan
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* GREETING EDITOR */}
-      {showGreetingEditor && (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-5"
-          onClick={() => setShowGreetingEditor(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="w-full max-w-sm rounded-2xl border border-[#252525] bg-[#fffaf1] p-5 shadow-[4px_4px_0px_#252525]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-extrabold">Ubah Sapaan Beranda</h3>
-              <button
-                type="button"
-                onClick={() => setShowGreetingEditor(false)}
-                aria-label="Tutup"
-              >
-                <X size={19} />
-              </button>
-            </div>
-
-            <textarea
-              value={draftGreeting}
-              onChange={(event) => setDraftGreeting(event.target.value)}
-              maxLength={100}
-              rows={3}
-              className="w-full resize-none rounded-xl border border-[#d8d0c5] bg-white p-3 text-sm outline-none focus:border-[#252525]"
-              placeholder="Tulis sapaan untuk dirimu..."
-            />
-
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowGreetingEditor(false)}
-                className="flex-1 rounded-xl border border-[#252525] px-3 py-2 text-sm font-bold"
-              >
-                Batal
-              </button>
-
-              <button
-                type="button"
-                onClick={saveGreeting}
-                disabled={!draftGreeting.trim()}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#252525] bg-[#BDECCF] px-3 py-2 text-sm font-bold disabled:opacity-50"
-              >
-                <Check size={16} />
-                Simpan
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
 
       {/* INFORMATION MODAL */}
       {activeInfo &&
         createPortal(
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/40 px-5 py-6"
+            className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#252525]/40 px-5 py-6 backdrop-blur-sm"
             onClick={() => setActiveInfo(null)}
           >
             <div
               role="dialog"
               aria-modal="true"
-              className="w-full max-w-sm rounded-2xl border border-[#252525] bg-[#fffaf1] p-5 shadow-[4px_4px_0px_#252525]"
+              className="w-full max-w-sm rounded-2xl border-2 border-[#252525] bg-[#fffaf1] p-5 shadow-[5px_5px_0px_#252525]"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-4 flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eee8df]">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#252525] bg-[#eee8df]">
                     {(() => {
                       const Icon = infoContent[activeInfo].icon
                       return <Icon size={20} />
@@ -1398,6 +1616,7 @@ const sendFeedback = () => {
                   type="button"
                   onClick={() => setActiveInfo(null)}
                   aria-label="Tutup"
+                  className="rounded-lg p-1 hover:bg-[#eee8df]"
                 >
                   <X size={19} />
                 </button>
@@ -1408,40 +1627,40 @@ const sendFeedback = () => {
               </p>
 
               {activeInfo === 'feedback' && (
-  <div className="mt-4">
-    <div className="mb-4 rounded-xl border border-[#252525]/20 bg-[#eee8df] p-3">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-[#888078]">
-        Dikirim ke
-      </p>
-      <p className="mt-1 break-all text-sm font-bold">
-        zetzayn@students.unnes.ac.id
-      </p>
-    </div>
+                <div className="mt-4">
+                  <div className="mb-4 rounded-xl border border-[#252525]/20 bg-[#eee8df] p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-[#888078]">
+                      Dikirim ke
+                    </p>
+                    <p className="mt-1 break-all text-sm font-bold">
+                      zetzayn@students.unnes.ac.id
+                    </p>
+                  </div>
 
-    <label className="mb-2 block text-xs font-bold">
-      Tulis masukanmu
-    </label>
+                  <label className="mb-2 block text-xs font-bold">
+                    Tulis masukanmu
+                  </label>
 
-    <textarea
-      value={feedbackText}
-      onChange={(event) => setFeedbackText(event.target.value)}
-      rows={4}
-      maxLength={1500}
-      placeholder="Ceritakan saran, ide, atau kendala yang kamu temukan..."
-      className="w-full resize-none rounded-xl border border-[#d8d0c5] bg-white p-3 text-sm outline-none focus:border-[#252525]"
-    />
+                  <textarea
+                    value={feedbackText}
+                    onChange={(event) => setFeedbackText(event.target.value)}
+                    rows={4}
+                    maxLength={1500}
+                    placeholder="Ceritakan saran, ide, atau kendala yang kamu temukan..."
+                    className="w-full resize-none rounded-xl border-2 border-[#252525] bg-white p-3 text-sm text-[#252525] outline-none transition placeholder:text-[#9c9489] focus:bg-[#fffdf7] focus:shadow-[3px_3px_0_#252525]"
+                  />
 
-    <p className="mt-1 text-right text-[10px] text-[#999188]">
-      {feedbackText.length}/1500
-    </p>
-  </div>
-)}
+                  <p className="mt-1 text-right text-[10px] text-[#999188]">
+                    {feedbackText.length}/1500
+                  </p>
+                </div>
+              )}
 
               <div className="mt-5 flex gap-2">
                 <button
                   type="button"
                   onClick={() => setActiveInfo(null)}
-                  className="flex-1 rounded-xl border border-[#252525] px-3 py-2.5 text-sm font-bold"
+                  className="flex-1 rounded-xl border-[1.5px] border-[#252525] bg-white px-3 py-2.5 text-sm font-bold"
                 >
                   Tutup
                 </button>
@@ -1451,7 +1670,7 @@ const sendFeedback = () => {
                     type="button"
                     onClick={sendFeedback}
                     disabled={!feedbackText.trim()}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#252525] bg-[#FFE69A] px-3 py-2.5 text-sm font-bold disabled:opacity-50"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-[#252525] bg-[#FFE69A] px-3 py-2.5 text-sm font-bold shadow-[2px_2px_0_#252525] disabled:opacity-50"
                   >
                     <Mail size={16} />
                     Kirim
@@ -1464,57 +1683,59 @@ const sendFeedback = () => {
         )}
 
       {/* RESTORE CONFIRMATION */}
-      {showRestoreConfirm && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 px-5 py-6"
-          onClick={() => {
-            setShowRestoreConfirm(false)
-            setPendingBackup(null)
-          }}
-        >
+      {showRestoreConfirm &&
+        createPortal(
           <div
-            role="dialog"
-            aria-modal="true"
-            className="w-full max-w-sm rounded-2xl border border-[#252525] bg-[#fffaf1] p-5 shadow-[4px_4px_0px_#252525]"
-            onClick={(event) => event.stopPropagation()}
+            className="fixed inset-0 z-[110] flex items-center justify-center bg-[#252525]/40 px-5 py-6 backdrop-blur-sm"
+            onClick={() => {
+              setShowRestoreConfirm(false)
+              setPendingBackup(null)
+            }}
           >
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#BDECCF]">
-              <FileJson size={22} />
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full max-w-sm rounded-2xl border-2 border-[#252525] bg-[#fffaf1] p-5 shadow-[5px_5px_0px_#252525]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-[#252525] bg-[#BDECCF]">
+                <FileJson size={22} />
+              </div>
+
+              <h3 className="text-lg font-extrabold">
+                Pulihkan Data?
+              </h3>
+
+              <p className="mt-2 text-sm leading-relaxed text-[#6f675f]">
+                Data saat ini akan digantikan dengan isi file backup yang
+                dipilih. Pastikan kamu sudah memiliki salinan data terbaru
+                sebelum melanjutkan.
+              </p>
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRestoreConfirm(false)
+                    setPendingBackup(null)
+                  }}
+                  className="flex-1 rounded-xl border-[1.5px] border-[#252525] bg-white px-3 py-2.5 text-sm font-bold"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={restoreBackup}
+                  className="flex-1 rounded-xl border-2 border-[#252525] bg-[#BDECCF] px-3 py-2.5 text-sm font-bold shadow-[2px_2px_0px_#252525]"
+                >
+                  Pulihkan
+                </button>
+              </div>
             </div>
-
-            <h3 className="text-lg font-extrabold">
-              Pulihkan Data?
-            </h3>
-
-            <p className="mt-2 text-sm leading-relaxed text-[#6f675f]">
-              Data saat ini akan digantikan dengan isi file backup yang
-              dipilih. Pastikan kamu sudah memiliki salinan data terbaru
-              sebelum melanjutkan.
-            </p>
-
-            <div className="mt-5 flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRestoreConfirm(false)
-                  setPendingBackup(null)
-                }}
-                className="flex-1 rounded-xl border border-[#252525] px-3 py-2.5 text-sm font-bold"
-              >
-                Batal
-              </button>
-
-              <button
-                type="button"
-                onClick={restoreBackup}
-                className="flex-1 rounded-xl border border-[#252525] bg-[#BDECCF] px-3 py-2.5 text-sm font-bold shadow-[2px_2px_0px_#252525]"
-              >
-                Pulihkan
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

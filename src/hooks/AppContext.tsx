@@ -1,4 +1,3 @@
-
 import {
   createContext,
   useContext,
@@ -26,16 +25,19 @@ import {
 } from '../lib/storage'
 
 import {
+  primeTimerEndSound,
   playTimerEndSound,
   stopTimerEndSound,
+  startBackgroundTimerKeepAlive,
+  stopBackgroundTimerKeepAlive,
   saveProfilePhoto,
   getProfilePhoto,
   deleteProfilePhoto,
 } from '../lib/audioStorage'
 
 const FOCUS_TIMER_STORAGE_KEY = 'bismillah-kelar-focus-timer'
-
-const MAX_PROFILE_PHOTO_SIZE = 2 * 1024 * 1024
+const SENT_REMINDERS_STORAGE_KEY = 'bismillah-kelar-sent-reminders'
+const TIMER_NOTIFICATION_TAG = 'bismillah-kelar-timer'
 
 const ALLOWED_PROFILE_PHOTO_TYPES = [
   'image/jpeg',
@@ -90,52 +92,154 @@ function getInitialFocusTimer(focusDuration: string): FocusTimerState {
   }
 }
 
-function getTodayKey() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
+function formatDateKey(timestamp: number = Date.now()) {
+  const date = new Date(timestamp)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
 
   return `${year}-${month}-${day}`
 }
 
-// Mengelola suara bawaan agar bisa dihentikan kapan saja.
-let fallbackAudioContext: AudioContext | null = null
+function formatTimeHHMM(date: Date) {
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function parseTimeToMinutes(timeStr: string): number | null {
+  const match = timeStr.match(/(\d{1,2}):(\d{2})/)
+  if (!match) return null
+
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null
+  }
+
+  return hours * 60 + minutes
+}
+
+function getSentReminders(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SENT_REMINDERS_STORAGE_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? new Set(parsed.map(String)) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function markReminderSent(key: string) {
+  try {
+    const sent = getSentReminders()
+    sent.add(key)
+    const trimmed = Array.from(sent).slice(-200)
+    localStorage.setItem(
+      SENT_REMINDERS_STORAGE_KEY,
+      JSON.stringify(trimmed),
+    )
+  } catch {
+    // Abaikan jika penyimpanan penuh.
+  }
+}
+
+function getAudioContextClass() {
+  if (typeof window === 'undefined') return undefined
+
+  return (
+    window.AudioContext ||
+    (
+      window as typeof window & {
+        webkitAudioContext?: typeof AudioContext
+      }
+    ).webkitAudioContext
+  )
+}
+
+// Mengelola suara cadangan jika file audio utama gagal dimuat.
+let sharedAudioContext: AudioContext | null = null
 let fallbackAudioTimeout: number | null = null
+let fallbackAudioInterval: number | null = null
+let fallbackPlaybackCallback: ((playing: boolean) => void) | null = null
+
+function unlockFallbackAudioContext() {
+  try {
+    const AudioContextClass = getAudioContextClass()
+    if (!AudioContextClass) return
+
+    if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+      sharedAudioContext = new AudioContextClass()
+    }
+
+    if (sharedAudioContext.state === 'suspended') {
+      void sharedAudioContext.resume().catch(() => {})
+    }
+  } catch {
+    // Abaikan jika perangkat membatasi AudioContext.
+  }
+}
 
 function stopTimerSound() {
+  if (fallbackAudioInterval !== null) {
+    window.clearInterval(fallbackAudioInterval)
+    fallbackAudioInterval = null
+  }
+
   if (fallbackAudioTimeout !== null) {
     window.clearTimeout(fallbackAudioTimeout)
     fallbackAudioTimeout = null
   }
 
-  if (fallbackAudioContext) {
-    const context = fallbackAudioContext
-    fallbackAudioContext = null
-
-    if (context.state !== 'closed') {
-      void context.close().catch(() => {})
-    }
-  }
+  const callback = fallbackPlaybackCallback
+  fallbackPlaybackCallback = null
+  callback?.(false)
 }
 
-// Suara bawaan jika MP3 belum tersedia atau gagal diputar.
-function playTimerSound() {
+// Suara cadangan jika MP3 belum tersedia atau gagal diputar.
+function playTimerSound(
+  volume: number = 1,
+  onPlaybackChange?: (playing: boolean) => void,
+  loop: boolean = false,
+) {
   try {
     stopTimerSound()
 
-    const AudioContextClass =
-      window.AudioContext ||
-      (
-        window as typeof window & {
-          webkitAudioContext?: typeof AudioContext
-        }
-      ).webkitAudioContext
+    const safeVolume = Number.isFinite(volume)
+      ? Math.max(0, Math.min(1, volume))
+      : 1
 
+    if (safeVolume <= 0) {
+      onPlaybackChange?.(false)
+      return
+    }
+
+    const AudioContextClass = getAudioContextClass()
     if (!AudioContextClass) return
 
-    const audioContext = new AudioContextClass()
-    fallbackAudioContext = audioContext
+    if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+      sharedAudioContext = new AudioContextClass()
+    }
+
+    const audioContext = sharedAudioContext
+
+    if (audioContext.state === 'suspended') {
+      void audioContext.resume().catch(() => {})
+    }
+
+    fallbackPlaybackCallback = onPlaybackChange ?? null
+    onPlaybackChange?.(true)
+
+    const peakGain = 0.28 * safeVolume
 
     const playTone = (
       frequency: number,
@@ -150,11 +254,11 @@ function playTimerSound() {
 
       gain.gain.setValueAtTime(0, startTime)
       gain.gain.linearRampToValueAtTime(
-        0.18,
+        peakGain,
         startTime + 0.03,
       )
       gain.gain.setValueAtTime(
-        0.18,
+        peakGain,
         startTime + duration - 0.05,
       )
       gain.gain.linearRampToValueAtTime(
@@ -167,32 +271,50 @@ function playTimerSound() {
 
       oscillator.start(startTime)
       oscillator.stop(startTime + duration)
+
+      oscillator.onended = () => {
+        oscillator.disconnect()
+        gain.disconnect()
+      }
     }
 
-    const startTime = audioContext.currentTime
-
-    playTone(660, startTime, 0.2)
-    playTone(880, startTime + 0.25, 0.25)
-    playTone(1046, startTime + 0.55, 0.4)
-
-    fallbackAudioTimeout = window.setTimeout(() => {
-      if (fallbackAudioContext === audioContext) {
-        fallbackAudioContext = null
+    const triggerChime = () => {
+      if (audioContext.state === 'closed') return
+      if (audioContext.state === 'suspended') {
+        void audioContext.resume().catch(() => {})
       }
 
-      fallbackAudioTimeout = null
+      const startTime = audioContext.currentTime
+      playTone(660, startTime, 0.2)
+      playTone(880, startTime + 0.25, 0.25)
+      playTone(1046, startTime + 0.55, 0.4)
+    }
 
-      if (audioContext.state !== 'closed') {
-        void audioContext.close().catch(() => {})
-      }
-    }, 1500)
+    triggerChime()
+
+    if (loop) {
+      fallbackAudioInterval = window.setInterval(triggerChime, 1600)
+    } else {
+      fallbackAudioTimeout = window.setTimeout(() => {
+        fallbackAudioTimeout = null
+        const callback = fallbackPlaybackCallback
+        fallbackPlaybackCallback = null
+        callback?.(false)
+      }, 1100)
+    }
   } catch (error) {
+    stopTimerSound()
     console.warn('Suara timer tidak dapat diputar:', error)
   }
 }
 
-// Notifikasi browser.
-function sendFocusNotification(title: string, body: string) {
+// Mengirim notifikasi perangkat (mendukung browser desktop maupun PWA Android di latar belakang).
+export function sendDeviceNotification(
+  title: string,
+  body: string,
+  tag?: string,
+  urgent: boolean = false,
+): Notification | null {
   if (
     typeof window === 'undefined' ||
     !('Notification' in window) ||
@@ -201,11 +323,67 @@ function sendFocusNotification(title: string, body: string) {
     return null
   }
 
+  const options: NotificationOptions & {
+    renotify?: boolean
+    vibrate?: number[]
+  } = {
+    body,
+    tag,
+    requireInteraction: urgent,
+    renotify: urgent,
+    vibrate: urgent ? [400, 200, 400, 200, 600] : [200, 100, 200],
+  }
+
+  if ('serviceWorker' in navigator) {
+    void navigator.serviceWorker.ready
+      .then((registration) => registration.showNotification(title, options))
+      .catch(() => {})
+  }
+
   try {
-    return new Notification(title, { body })
-  } catch (error) {
-    console.warn('Notifikasi tidak dapat ditampilkan:', error)
+    return new Notification(title, options)
+  } catch {
     return null
+  }
+}
+
+// Web Worker ringan agar detak pemeriksaan timer tidak diperlambat browser saat pindah tab/aplikasi.
+function createUnthrottledTicker(onTick: () => void): () => void {
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+    const id = window.setInterval(onTick, 250)
+    return () => window.clearInterval(id)
+  }
+
+  try {
+    const workerCode = `
+      let timer = null;
+      self.onmessage = (e) => {
+        if (e.data === 'start') {
+          if (timer) clearInterval(timer);
+          timer = setInterval(() => self.postMessage('tick'), 250);
+        } else if (e.data === 'stop') {
+          if (timer) clearInterval(timer);
+          timer = null;
+        }
+      };
+    `
+    const blob = new Blob([workerCode], { type: 'application/javascript' })
+    const workerUrl = URL.createObjectURL(blob)
+    const worker = new Worker(workerUrl)
+
+    worker.onmessage = () => {
+      onTick()
+    }
+    worker.postMessage('start')
+
+    return () => {
+      worker.postMessage('stop')
+      worker.terminate()
+      URL.revokeObjectURL(workerUrl)
+    }
+  } catch {
+    const id = window.setInterval(onTick, 250)
+    return () => window.clearInterval(id)
   }
 }
 
@@ -213,7 +391,7 @@ interface AppContextType {
   data: AppData
 
   profilePhotoUrl: string | null
-  updateProfile: (updates: Pick<Partial<UserProfile>, 'name'>) => void
+  updateProfile: (updates: Partial<UserProfile>) => void
   updateProfilePhoto: (file: File) => Promise<void>
   removeProfilePhoto: () => Promise<void>
 
@@ -326,11 +504,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Simpan timer secara terpisah agar tidak hilang saat berpindah halaman.
   useEffect(() => {
-    localStorage.setItem(
-      FOCUS_TIMER_STORAGE_KEY,
-      JSON.stringify(focusTimer),
-    )
+    try {
+      localStorage.setItem(
+        FOCUS_TIMER_STORAGE_KEY,
+        JSON.stringify(focusTimer),
+      )
+    } catch {
+      // Abaikan jika penyimpanan penuh atau tidak tersedia.
+    }
   }, [focusTimer])
+
+  // Kelola background keep-alive agar timer tidak dibekukan HP saat keluar dari aplikasi.
+  useEffect(() => {
+    if (focusTimer.status === 'running') {
+      startBackgroundTimerKeepAlive(focusTimer.mode)
+    } else {
+      stopBackgroundTimerKeepAlive()
+    }
+  }, [focusTimer.status, focusTimer.mode])
+
+  // Sinkronkan durasi timer jika pengaturan diubah saat status idle.
+  useEffect(() => {
+    setFocusTimer((current) => {
+      if (current.status !== 'idle') return current
+
+      const targetMinutes = getMinutes(
+        current.mode === 'focus'
+          ? data.settings.focusDuration
+          : data.settings.breakDuration,
+        current.mode === 'focus' ? 25 : 5,
+      )
+
+      const targetSeconds = targetMinutes * 60
+
+      if (
+        current.sessionMinutes === targetMinutes &&
+        current.remainingSeconds === targetSeconds
+      ) {
+        return current
+      }
+
+      return {
+        ...current,
+        remainingSeconds: targetSeconds,
+        sessionMinutes: targetMinutes,
+      }
+    })
+  }, [data.settings.focusDuration, data.settings.breakDuration])
 
   // Mengganti URL foto profil yang sedang ditampilkan.
   function setProfilePhoto(blob: Blob | null) {
@@ -350,10 +570,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProfilePhotoUrl(url)
   }
 
-  // Memperbarui nama profil.
-  function updateProfile(
-    updates: Pick<Partial<UserProfile>, 'name'>,
-  ) {
+  // Memperbarui data profil.
+  function updateProfile(updates: Partial<UserProfile>) {
     setData((current) => ({
       ...current,
       profile: {
@@ -363,14 +581,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-  // Menyimpan foto profil ke IndexedDB.
+  // Menyimpan foto profil ke IndexedDB tanpa batas ukuran file.
   async function updateProfilePhoto(file: File) {
     if (!ALLOWED_PROFILE_PHOTO_TYPES.includes(file.type)) {
       throw new Error('Format foto harus JPG, PNG, atau WebP.')
-    }
-
-    if (file.size > MAX_PROFILE_PHOTO_SIZE) {
-      throw new Error('Ukuran foto maksimal 2 MB.')
     }
 
     await saveProfilePhoto(file)
@@ -401,9 +615,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-  // Menghentikan suara dan menutup notifikasi timer.
+  // Menghentikan suara yang terus berbunyi dan menutup notifikasi timer.
   function stopCompletionAlert() {
-    // Batalkan pemutaran yang mungkin masih menunggu data MP3.
+    // Batalkan pemutaran yang mungkin masih menunggu data audio.
     completionPlaybackIdRef.current += 1
 
     stopTimerEndSound()
@@ -415,18 +629,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activeNotificationRef.current = null
     }
 
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      void navigator.serviceWorker.ready
+        .then((registration) =>
+          registration.getNotifications({ tag: TIMER_NOTIFICATION_TAG }),
+        )
+        .then((notifications) => {
+          notifications.forEach((item) => item.close())
+        })
+        .catch(() => {})
+    }
+
     setIsCompletionNotificationActive(false)
   }
 
-  // Menampilkan notifikasi yang bisa ditutup dari aplikasi.
+  // Menampilkan notifikasi timer yang bisa ditutup dari aplikasi.
   function showCompletionNotification(title: string, body: string) {
-    const notification = sendFocusNotification(title, body)
+    if (
+      typeof window === 'undefined' ||
+      !('Notification' in window) ||
+      Notification.permission !== 'granted'
+    ) {
+      return
+    }
 
-    if (!notification) return
+    const notification = sendDeviceNotification(
+      title,
+      body,
+      TIMER_NOTIFICATION_TAG,
+      true,
+    )
+
+    setIsCompletionNotificationActive(true)
+
+    if (!notification) {
+      return
+    }
 
     activeNotificationRef.current?.close()
     activeNotificationRef.current = notification
-    setIsCompletionNotificationActive(true)
 
     notification.onclose = () => {
       if (activeNotificationRef.current === notification) {
@@ -443,7 +684,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Memutar MP3 pribadi, lalu memakai suara bawaan jika gagal.
+  // Memutar audio default ("The Phone Lingering") / MP3 pilihan secara berulang hingga dihentikan.
   async function playCompletionSound(volume: number) {
     const playbackId = ++completionPlaybackIdRef.current
 
@@ -453,6 +694,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const played = await playTimerEndSound(
         volume,
         setIsCompletionSoundPlaying,
+        true,
       )
 
       // Jangan putar suara cadangan jika proses sudah dibatalkan.
@@ -461,19 +703,152 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       if (!played) {
-        playTimerSound()
+        playTimerSound(volume, setIsCompletionSoundPlaying, true)
       }
     } catch (error) {
       if (playbackId !== completionPlaybackIdRef.current) {
         return
       }
 
-      console.warn('Gagal memutar MP3 timer:', error)
-      playTimerSound()
+      console.warn('Gagal memutar audio timer:', error)
+      playTimerSound(volume, setIsCompletionSoundPlaying, true)
     }
   }
 
-  // Timer berjalan di tingkat AppProvider.
+  // Pengingat otomatis jadwal, tenggat tugas, dan rutinitas harian via notifikasi perangkat.
+  useEffect(() => {
+    const checkScheduledReminders = () => {
+      if (
+        typeof window === 'undefined' ||
+        !('Notification' in window) ||
+        Notification.permission !== 'granted'
+      ) {
+        return
+      }
+
+      const now = new Date()
+      const todayKey = formatDateKey(now.getTime())
+      const currentHHMM = formatTimeHHMM(now)
+      const currentTotalMinutes = now.getHours() * 60 + now.getMinutes()
+      const sent = getSentReminders()
+
+      // 1. Pengingat tugas harian pukul 07:00
+      if (
+        data.settings.notifications.daily &&
+        currentHHMM === '07:00'
+      ) {
+        const key = `daily-${todayKey}`
+        if (!sent.has(key)) {
+          const todayTasksCount = data.tasks.filter(
+            (t) => t.date === todayKey && t.status === 'todo',
+          ).length
+          sendDeviceNotification(
+            'Bismillah, mulai harimu!',
+            todayTasksCount > 0
+              ? `Kamu punya ${todayTasksCount} target tugas untuk diselesaikan hari ini.`
+              : 'Yuk cek agenda dan target produktivitasmu hari ini.',
+            key,
+          )
+          markReminderSent(key)
+        }
+      }
+
+      // 2. Pengingat agenda hari ini saat jam jadwal tiba
+      if (data.settings.notifications.daily) {
+        const todayAgendas = data.agenda[todayKey] ?? []
+        for (const item of todayAgendas) {
+          if (item.done) continue
+          const itemMinutes = parseTimeToMinutes(item.time)
+          if (itemMinutes !== null && itemMinutes === currentTotalMinutes) {
+            const key = `agenda-${todayKey}-${item.id}-${item.time}`
+            if (!sent.has(key)) {
+              sendDeviceNotification(
+                `Jadwal Dimulai: ${item.title}`,
+                `Pukul ${item.time} WIB • ${item.category}`,
+                key,
+              )
+              markReminderSent(key)
+            }
+          }
+        }
+      }
+
+      // 3. Pengingat deadline tugas (2 jam sebelum tenggat & saat waktu tenggat tiba)
+      if (data.settings.notifications.deadline) {
+        const todayTasks = data.tasks.filter(
+          (t) => t.date === todayKey && t.status === 'todo',
+        )
+        for (const task of todayTasks) {
+          const taskMinutes = parseTimeToMinutes(task.time)
+          if (taskMinutes === null) continue
+
+          const diffMinutes = taskMinutes - currentTotalMinutes
+
+          if (diffMinutes === 120) {
+            const key = `deadline-2h-${todayKey}-${task.id}-${task.time}`
+            if (!sent.has(key)) {
+              sendDeviceNotification(
+                `2 Jam Menuju Tenggat: ${task.title}`,
+                `Batas waktu pukul ${task.time} WIB (${task.priority}).`,
+                key,
+              )
+              markReminderSent(key)
+            }
+          } else if (diffMinutes === 0) {
+            const key = `deadline-now-${todayKey}-${task.id}-${task.time}`
+            if (!sent.has(key)) {
+              sendDeviceNotification(
+                `Batas Waktu Tugas: ${task.title}`,
+                `Sudah pukul ${task.time} WIB. Yuk segera tuntaskan!`,
+                key,
+              )
+              markReminderSent(key)
+            }
+          }
+        }
+      }
+
+      // 4. Pengingat refleksi malam hari pukul 21:30
+      if (
+        data.settings.notifications.reflection &&
+        currentHHMM === '21:30'
+      ) {
+        const key = `reflection-${todayKey}`
+        if (!sent.has(key)) {
+          sendDeviceNotification(
+            'Waktunya Refleksi Malam',
+            'Luangkan sejenak untuk mencatat progres dan evaluasi harimu.',
+            key,
+          )
+          markReminderSent(key)
+        }
+      }
+    }
+
+    checkScheduledReminders()
+
+    const interval = window.setInterval(checkScheduledReminders, 15000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        checkScheduledReminders()
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [
+    data.agenda,
+    data.tasks,
+    data.settings.notifications.daily,
+    data.settings.notifications.deadline,
+    data.settings.notifications.reflection,
+  ])
+
+  // Timer berjalan di tingkat AppProvider dengan Web Worker agar tetap akurat di luar aplikasi.
   useEffect(() => {
     if (focusTimer.status !== 'running' || focusTimer.endsAt === null) {
       return
@@ -483,19 +858,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const timerMode = focusTimer.mode
     const sessionMinutes = focusTimer.sessionMinutes
 
-    const interval = window.setInterval(() => {
+    const checkTimerCompletion = () => {
       if (Date.now() < timerEndsAt) return
 
       if (completedTimerRef.current === timerEndsAt) return
       completedTimerRef.current = timerEndsAt
 
+      stopBackgroundTimerKeepAlive()
       void playCompletionSound(data.settings.soundVolume ?? 1)
 
       if (timerMode === 'focus') {
-        const today = getTodayKey()
+        const completedDateKey = formatDateKey(timerEndsAt)
 
         setData((current) => {
-          const previous = current.dailyRecords[today] ?? {
+          const previous = current.dailyRecords[completedDateKey] ?? {
             habitStatus: {},
             note: '',
             focusSessions: 0,
@@ -506,7 +882,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...current,
             dailyRecords: {
               ...current.dailyRecords,
-              [today]: {
+              [completedDateKey]: {
                 ...previous,
                 focusSessions: previous.focusSessions + 1,
                 focusMinutes: previous.focusMinutes + sessionMinutes,
@@ -535,6 +911,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
           )
         }
       } else {
+        const completedDateKey = formatDateKey(timerEndsAt)
+
+        setData((current) => {
+          const previous = current.dailyRecords[completedDateKey] ?? {
+            habitStatus: {},
+            note: '',
+            focusSessions: 0,
+            focusMinutes: 0,
+            breakSessions: 0,
+          }
+
+          return {
+            ...current,
+            dailyRecords: {
+              ...current.dailyRecords,
+              [completedDateKey]: {
+                ...previous,
+                breakSessions: (previous.breakSessions ?? 0) + 1,
+              },
+            },
+          }
+        })
+
         const focusMinutes = getMinutes(
           data.settings.focusDuration,
           25,
@@ -555,9 +954,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
           )
         }
       }
-    }, 500)
+    }
 
-    return () => window.clearInterval(interval)
+    checkTimerCompletion()
+
+    const stopTicker = createUnthrottledTicker(checkTimerCompletion)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkTimerCompletion()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', checkTimerCompletion)
+    window.addEventListener('pageshow', checkTimerCompletion)
+
+    return () => {
+      stopTicker()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', checkTimerCompletion)
+      window.removeEventListener('pageshow', checkTimerCompletion)
+    }
   }, [
     focusTimer.status,
     focusTimer.endsAt,
@@ -570,8 +987,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ])
 
   function startFocusTimer() {
-    // Hentikan alarm dan notifikasi dari sesi sebelumnya.
+    // Pastikan audio alarm yang berbunyi otomatis mati sebelum sesi dimulai.
     stopCompletionAlert()
+
+    // Buka izin elemen audio & AudioContext selama interaksi pengguna agar tetap bisa berbunyi di luar aplikasi.
+    void primeTimerEndSound()
+    unlockFallbackAudioContext()
+    startBackgroundTimerKeepAlive(focusTimer.mode)
+
+    const nowMs = Date.now()
 
     setFocusTimer((current) => {
       const isResuming = current.status === 'paused'
@@ -592,39 +1016,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return {
         ...current,
         status: 'running',
-        endsAt: Date.now() + duration * 1000,
+        endsAt: nowMs + duration * 1000,
         remainingSeconds: duration,
         sessionMinutes,
       }
     })
-
-    if (
-      data.settings.notifications.focus &&
-      'Notification' in window
-    ) {
-      if (Notification.permission === 'granted') {
-        sendFocusNotification(
-          focusTimer.mode === 'focus'
-            ? 'Sesi fokus dimulai'
-            : 'Waktu istirahat dimulai',
-          focusTimer.mode === 'focus'
-            ? 'Saatnya fokus pada satu hal.'
-            : 'Nikmati waktu istirahatmu.',
-        )
-      } else if (Notification.permission === 'default') {
-        Notification.requestPermission().then((permission) => {
-          if (permission === 'granted') {
-            sendFocusNotification(
-              'Timer aktif',
-              'Notifikasi timer berhasil diaktifkan.',
-            )
-          }
-        })
-      }
-    }
   }
 
   function pauseFocusTimer() {
+    stopBackgroundTimerKeepAlive()
+    const nowMs = Date.now()
+
     setFocusTimer((current) => {
       if (current.status !== 'running' || current.endsAt === null) {
         return current
@@ -632,7 +1034,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const remaining = Math.max(
         0,
-        Math.ceil((current.endsAt - Date.now()) / 1000),
+        Math.ceil((current.endsAt - nowMs) / 1000),
       )
 
       return {
@@ -645,6 +1047,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function resetFocusTimer() {
+    stopBackgroundTimerKeepAlive()
     stopCompletionAlert()
 
     setFocusTimer((current) => {
@@ -688,7 +1091,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-    // Menambahkan rutinitas baru.
+  // Menambahkan rutinitas baru.
   function addHabit(habit: Omit<Habit, 'id'>) {
     setData((current) => {
       const nextId =
@@ -811,7 +1214,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function replaceData(newData: AppData) {
-    setData(normalizeAppData(newData))
+    stopBackgroundTimerKeepAlive()
+    stopCompletionAlert()
+
+    const normalized = normalizeAppData(newData)
+    const restoredFocusMinutes = getMinutes(
+      normalized.settings.focusDuration,
+      25,
+    )
+
+    setFocusTimer({
+      mode: 'focus',
+      status: 'idle',
+      endsAt: null,
+      remainingSeconds: restoredFocusMinutes * 60,
+      sessionMinutes: restoredFocusMinutes,
+    })
+
+    setData({
+      ...normalized,
+      profile: {
+        ...normalized.profile,
+        photo: profilePhotoUrlRef.current ? 'indexeddb' : null,
+      },
+    })
   }
 
   return (

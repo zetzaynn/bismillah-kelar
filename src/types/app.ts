@@ -1,4 +1,3 @@
-
 export type TaskStatus = 'todo' | 'done'
 export type TaskPriority = 'Tinggi' | 'Sedang' | 'Rendah'
 
@@ -44,6 +43,7 @@ export interface DailyRecord {
   note: string
   focusSessions: number
   focusMinutes: number
+  breakSessions?: number
   reflection?: WeeklyReflection
 }
 
@@ -107,7 +107,7 @@ export const initialAppData: AppData = {
     focusDuration: '25 Menit',
     breakDuration: '5 Menit',
     dailyTarget: '3 - 5 Target',
-    greeting: 'Nihao Fineshyt.',
+    greeting: 'Nihao Fineshyt',
     soundVolume: 1,
   },
 }
