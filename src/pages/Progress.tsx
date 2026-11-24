@@ -823,7 +823,7 @@ export default function Progress() {
               key={item.key}
               className={`space-y-1.5 ${
                 index < array.length - 1
-                  ? 'border-b border-[#eee8df] pb-3.5'
+                  ? 'border-b-2 border-[#e0d8cc] pb-3.5'
                   : ''
               }`}
             >
@@ -838,7 +838,7 @@ export default function Progress() {
             </div>
           ))}
 
-          <div className="border-t border-[#eee8df] pt-3.5">
+          <div className="border-t-2 border-[#e0d8cc] pt-3.5">
             <button
               type="button"
               onClick={() => {
