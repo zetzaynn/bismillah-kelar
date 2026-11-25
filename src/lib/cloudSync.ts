@@ -1,9 +1,6 @@
 import type { AppData } from '../types/app'
 
-const RAW_SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? '').trim()
-const SUPABASE_URL = RAW_SUPABASE_URL.includes('supabase.co')
-  ? RAW_SUPABASE_URL.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '')
-  : 'https://mpdumvqbibevxtfzdudl.supabase.co'
+const SUPABASE_URL = 'https://mpdumvqbibevxtfzdudl.supabase.co'
 const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim()
 
 const SYNC_KEY_STORAGE = 'bismillah-kelar-sync-key'
