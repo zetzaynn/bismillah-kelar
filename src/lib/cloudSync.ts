@@ -107,35 +107,55 @@ export function markPendingLocalChange() {
   localStorage.setItem(PENDING_PUSH_STORAGE, 'true')
 }
 
-// 1. Membuat sesi QR dinamis (berlaku 60 detik) untuk perangkat baru yang ingin ditautkan
+// 1. Membuat sesi QR dinamis (berlaku 60 detik) dengan timeout 10 detik
 export async function createDynamicPairingSession(): Promise<{
   sessionCode: string
   expiresAt: number
 }> {
   if (!isSupabaseConfigured()) {
-    throw new Error('Konfigurasi Supabase (.env) belum diisi.')
+    throw new Error(
+      'Variabel VITE_SUPABASE_URL / ANON_KEY belum terbaca. Coba Redeploy di Vercel.',
+    )
   }
 
   const sessionCode = `PAIR-${generateSecureCode(6)}`
   const expiresAtMs = Date.now() + 60_000
   const expiresAtIso = new Date(expiresAtMs).toISOString()
 
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/pairing_sessions`, {
-    method: 'POST',
-    headers: getHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({
-      session_code: sessionCode,
-      target_device_name: detectDeviceName(),
-      status: 'pending',
-      expires_at: expiresAtIso,
-    }),
-  })
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), 10_000)
 
-  if (!response.ok) {
-    throw new Error('Gagal membuat sesi QR sementara.')
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/pairing_sessions`, {
+      method: 'POST',
+      headers: getHeaders({ Prefer: 'return=minimal' }),
+      signal: controller.signal,
+      body: JSON.stringify({
+        session_code: sessionCode,
+        target_device_name: detectDeviceName(),
+        status: 'pending',
+        expires_at: expiresAtIso,
+      }),
+    })
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(
+        `Supabase error (${response.status}): ${detail || 'Tabel pairing_sessions belum siap.'}`,
+      )
+    }
+
+    return { sessionCode, expiresAt: expiresAtMs }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(
+        'Koneksi ke Supabase timeout (lebih dari 10 detik). Periksa jaringan atau URL Supabase.',
+      )
+    }
+    throw err
+  } finally {
+    window.clearTimeout(timeoutId)
   }
-
-  return { sessionCode, expiresAt: expiresAtMs }
 }
 
 // 2. Mengecek apakah QR sesi kita sudah di-scan oleh perangkat utama

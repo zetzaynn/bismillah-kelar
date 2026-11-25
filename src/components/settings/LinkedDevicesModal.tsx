@@ -272,7 +272,7 @@ export default function LinkedDevicesModal({
   return createPortal(
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[105] flex items-center justify-center overflow-y-auto bg-[#252525]/45 px-4 py-6 backdrop-blur-sm"
+      className="fixed inset-0 z-[105] flex items-start justify-center overflow-y-auto bg-[#252525]/45 px-4 py-6 backdrop-blur-sm sm:items-center"
     >
       <div
         role="dialog"
