@@ -4,7 +4,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Calendar as CalendarIcon,
   CalendarDays,
+  Clock,
   Clock3,
   Plus,
   Check,
@@ -19,6 +21,7 @@ import type { AgendaItem } from '../types/app'
 import { getIndonesiaEvents } from '../data/indonesiaHolidays'
 
 type CalendarView = 'Bulan' | 'Pekan' | 'Agenda'
+type ActiveSchedulePicker = 'date' | 'time' | null
 
 type EditingAgenda = {
   id: number
@@ -36,13 +39,44 @@ const pad = (value: number) => String(value).padStart(2, '0')
 const dateKey = (date: Date) =>
   `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 
+function parseDateString(dateStr: string) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, (m || 1) - 1, d || 1)
+}
+
 const monthNames = [
   'Januari', 'Februari', 'Maret', 'April',
   'Mei', 'Juni', 'Juli', 'Agustus',
   'September', 'Oktober', 'November', 'Desember',
 ]
 
+function formatReadableDate(dateStr: string) {
+  const date = parseDateString(dateStr)
+  return `${date.getDate()} ${monthNames[date.getMonth()].slice(0, 3)} ${date.getFullYear()}`
+}
+
 const weekdayNames = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
+
+const hourOptions = Array.from({ length: 24 }, (_, idx) =>
+  String(idx).padStart(2, '0'),
+)
+
+const minuteOptions = [
+  '00',
+  '05',
+  '10',
+  '15',
+  '20',
+  '25',
+  '30',
+  '35',
+  '40',
+  '45',
+  '50',
+  '55',
+]
+
+const quickTimePresets = ['07:00', '10:00', '13:00', '16:00', '20:00']
 
 const categories = [
   { name: 'Kuliah', color: '#ffb5a7' },
@@ -172,6 +206,12 @@ export default function Calendar() {
   const [formCategory, setFormCategory] = useState('Pribadi')
   const [formError, setFormError] = useState('')
 
+  const [activeSchedulePicker, setActiveSchedulePicker] =
+    useState<ActiveSchedulePicker>(null)
+  const [schedulePickerMonth, setSchedulePickerMonth] = useState(
+    () => new Date(now.getFullYear(), now.getMonth(), 1),
+  )
+
   const agenda = data.agenda
   const selected = new Date(`${selectedDate}T00:00:00`)
   const selectedAgenda = agenda[selectedDate] ?? []
@@ -247,7 +287,18 @@ export default function Calendar() {
     })
   }
 
+  function toggleSchedulePicker(picker: ActiveSchedulePicker) {
+    if (picker === 'date') {
+      const parsed = parseDateString(formDate)
+      setSchedulePickerMonth(
+        new Date(parsed.getFullYear(), parsed.getMonth(), 1),
+      )
+    }
+    setActiveSchedulePicker((prev) => (prev === picker ? null : picker))
+  }
+
   function openAddForm() {
+    const parsedSelected = parseDateString(selectedDate)
     setAgendaActionMode('normal')
     setEditingAgenda(null)
     setFormTitle('')
@@ -255,10 +306,15 @@ export default function Calendar() {
     setFormTime('20:00')
     setFormCategory('Pribadi')
     setFormError('')
+    setActiveSchedulePicker(null)
+    setSchedulePickerMonth(
+      new Date(parsedSelected.getFullYear(), parsedSelected.getMonth(), 1),
+    )
     setShowForm(true)
   }
 
   function openEditForm(item: AgendaItem) {
+    const parsedSelected = parseDateString(selectedDate)
     setAgendaActionMode('normal')
     setEditingAgenda({
       id: item.id,
@@ -274,6 +330,10 @@ export default function Calendar() {
         : 'Lainnya',
     )
     setFormError('')
+    setActiveSchedulePicker(null)
+    setSchedulePickerMonth(
+      new Date(parsedSelected.getFullYear(), parsedSelected.getMonth(), 1),
+    )
     setShowForm(true)
   }
 
@@ -299,6 +359,7 @@ export default function Calendar() {
   function closeForm() {
     setShowForm(false)
     setEditingAgenda(null)
+    setActiveSchedulePicker(null)
     setFormError('')
   }
 
@@ -404,6 +465,28 @@ export default function Calendar() {
   const completedAgendaCount = selectedAgenda.filter(
     (item) => item.done,
   ).length
+
+  // Grid kalender untuk custom date picker pada modal Tambah/Edit Jadwal
+  const schedulePickerYear = schedulePickerMonth.getFullYear()
+  const schedulePickerMonthIdx = schedulePickerMonth.getMonth()
+  const firstSchedulePickerDay = new Date(
+    schedulePickerYear,
+    schedulePickerMonthIdx,
+    1,
+  ).getDay()
+  const schedulePickerStartOffset = (firstSchedulePickerDay + 6) % 7
+  const schedulePickerDaysInMonth = new Date(
+    schedulePickerYear,
+    schedulePickerMonthIdx + 1,
+    0,
+  ).getDate()
+
+  const schedulePickerCells: (number | null)[] = [
+    ...Array(schedulePickerStartOffset).fill(null),
+    ...Array.from({ length: schedulePickerDaysInMonth }, (_, i) => i + 1),
+  ]
+
+  const [selectedScheduleHour, selectedScheduleMinute] = formTime.split(':')
 
   return (
     <div className="space-y-6 pb-24">
@@ -984,7 +1067,7 @@ export default function Calendar() {
       {showForm &&
         createPortal(
           <div
-            className="fixed inset-0 z-[70] flex items-center justify-center bg-[#252525]/40 px-4 py-6 backdrop-blur-sm"
+            className="fixed inset-0 z-[70] flex items-end justify-center bg-[#252525]/40 backdrop-blur-sm sm:items-center sm:px-4"
             onClick={(event) => {
               if (event.target === event.currentTarget) {
                 closeForm()
@@ -994,9 +1077,11 @@ export default function Calendar() {
             <div
               role="dialog"
               aria-modal="true"
-              className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border-2 border-[#252525] bg-[#fffaf1] p-5 shadow-[5px_5px_0_#252525]"
+              className="max-h-[90vh] w-full max-w-[480px] space-y-4 overflow-y-auto rounded-t-2xl border-t-2 border-[#252525] bg-[#fffaf1] p-5 pb-8 shadow-2xl sm:rounded-2xl sm:border-2 sm:shadow-[5px_5px_0_#252525]"
             >
-              <div className="mb-5 flex items-center justify-between">
+              <div className="mx-auto h-1 w-12 rounded-full bg-[#d8d0c4] sm:hidden" />
+
+              <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-bold">
                     {editingAgenda ? 'Edit Jadwal' : 'Tambah Jadwal'}
@@ -1012,15 +1097,15 @@ export default function Calendar() {
                   type="button"
                   onClick={closeForm}
                   aria-label="Tutup formulir"
-                  className="rounded-lg bg-[#f1ede6] p-2 hover:bg-[#e5dfd3]"
+                  className="rounded-full p-2 hover:bg-[#f0ece4]"
                 >
-                  <X size={18} />
+                  <X size={19} />
                 </button>
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold">
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold">
                     Nama kegiatan
                   </label>
                   <textarea
@@ -1039,38 +1124,267 @@ export default function Calendar() {
                       }
                     }}
                     placeholder="Contoh: Mengerjakan tugas kuliah"
-                    className="w-full resize-none overflow-x-auto whitespace-nowrap rounded-xl border-2 border-[#252525] bg-white px-3 py-3 text-sm text-[#252525] outline-none transition placeholder:text-[#9c9489] focus:bg-[#fffdf7] focus:shadow-[3px_3px_0_#252525]"
+                    className="w-full resize-none overflow-x-auto whitespace-nowrap rounded-xl border-2 border-[#252525] bg-white px-3.5 py-3 text-sm text-[#252525] outline-none transition placeholder:text-[#9c9489] focus:bg-[#fffdf7] focus:shadow-[3px_3px_0_#252525]"
                   />
                 </div>
 
+                {/* Custom Tanggal & Custom Waktu (sama persis dengan Target Baru) */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold">
                       Tanggal
                     </label>
-                    <input
-                      type="date"
-                      value={formDate}
-                      onChange={(event) => setFormDate(event.target.value)}
-                      className="w-full min-w-0 rounded-xl border-[1.5px] border-[#252525] bg-white px-3 py-3 text-xs font-semibold outline-none focus:bg-[#ffe69a]"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => toggleSchedulePicker('date')}
+                      aria-expanded={activeSchedulePicker === 'date'}
+                      className={`flex w-full items-center justify-between gap-2 rounded-xl border-2 border-[#252525] px-3 py-3 text-xs font-bold text-[#252525] shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                        activeSchedulePicker === 'date'
+                          ? 'bg-[#ffe69a]'
+                          : 'bg-[#f5f0e7]'
+                      }`}
+                    >
+                      <span className="truncate">
+                        {formatReadableDate(formDate)}
+                      </span>
+                      <CalendarIcon size={15} className="shrink-0" />
+                    </button>
                   </div>
 
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold">
                       Waktu
                     </label>
-                    <input
-                      type="time"
-                      value={formTime}
-                      onChange={(event) => setFormTime(event.target.value)}
-                      className="w-full rounded-xl border-[1.5px] border-[#252525] bg-white px-3 py-3 text-xs font-semibold outline-none focus:bg-[#ffe69a]"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => toggleSchedulePicker('time')}
+                      aria-expanded={activeSchedulePicker === 'time'}
+                      className={`flex w-full items-center justify-between gap-2 rounded-xl border-2 border-[#252525] px-3 py-3 text-xs font-bold text-[#252525] shadow-[2px_2px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                        activeSchedulePicker === 'time'
+                          ? 'bg-[#ffe69a]'
+                          : 'bg-[#f5f0e7]'
+                      }`}
+                    >
+                      <span>{formTime} WIB</span>
+                      <Clock size={15} className="shrink-0" />
+                    </button>
                   </div>
                 </div>
 
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold">
+                {/* Panel Custom Date Picker */}
+                {activeSchedulePicker === 'date' && (
+                  <div className="rounded-xl border-2 border-[#252525] bg-white p-3.5 shadow-[3px_3px_0_#252525]">
+                    <div className="mb-3 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSchedulePickerMonth(
+                            new Date(
+                              schedulePickerYear,
+                              schedulePickerMonthIdx - 1,
+                              1,
+                            ),
+                          )
+                        }
+                        aria-label="Bulan sebelumnya"
+                        className="rounded-lg border border-[#252525] bg-[#f5f0e7] p-1.5 hover:bg-[#ffe69a]"
+                      >
+                        <ChevronLeft size={15} />
+                      </button>
+
+                      <span className="text-xs font-extrabold text-[#252525]">
+                        {monthNames[schedulePickerMonthIdx]}{' '}
+                        {schedulePickerYear}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSchedulePickerMonth(
+                            new Date(
+                              schedulePickerYear,
+                              schedulePickerMonthIdx + 1,
+                              1,
+                            ),
+                          )
+                        }
+                        aria-label="Bulan berikutnya"
+                        className="rounded-lg border border-[#252525] bg-[#f5f0e7] p-1.5 hover:bg-[#ffe69a]"
+                      >
+                        <ChevronRight size={15} />
+                      </button>
+                    </div>
+
+                    <div className="mb-1.5 grid grid-cols-7 text-center text-[10px] font-bold text-[#716b60]">
+                      {weekdayNames.map((day) => (
+                        <div key={day}>{day}</div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {schedulePickerCells.map((day, idx) => {
+                        if (!day) {
+                          return <div key={`empty-${idx}`} />
+                        }
+
+                        const cellDateStr = `${schedulePickerYear}-${pad(
+                          schedulePickerMonthIdx + 1,
+                        )}-${pad(day)}`
+                        const isSelected = cellDateStr === formDate
+                        const isToday = cellDateStr === dateKey(new Date())
+
+                        return (
+                          <button
+                            key={cellDateStr}
+                            type="button"
+                            onClick={() => {
+                              setFormDate(cellDateStr)
+                              setActiveSchedulePicker(null)
+                            }}
+                            className={`rounded-lg py-1.5 text-xs font-bold transition ${
+                              isSelected
+                                ? 'border border-[#252525] bg-[#ffe69a] text-[#252525] shadow-[1.5px_1.5px_0_#252525]'
+                                : isToday
+                                  ? 'bg-[#eee8d9] text-[#252525]'
+                                  : 'text-[#4e4941] hover:bg-[#f5f0e7]'
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between border-t border-[#eee8d9] pt-2.5">
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const today = new Date()
+                            setFormDate(dateKey(today))
+                            setActiveSchedulePicker(null)
+                          }}
+                          className="rounded-lg border border-[#252525] bg-[#ffe69a] px-2.5 py-1 text-[11px] font-bold"
+                        >
+                          Hari Ini
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const tomorrow = new Date()
+                            tomorrow.setDate(tomorrow.getDate() + 1)
+                            setFormDate(dateKey(tomorrow))
+                            setActiveSchedulePicker(null)
+                          }}
+                          className="rounded-lg border border-[#d9cfbd] bg-[#f5f0e7] px-2.5 py-1 text-[11px] font-semibold"
+                        >
+                          Besok
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveSchedulePicker(null)}
+                        className="text-[11px] font-bold text-[#716b60] hover:text-[#252525]"
+                      >
+                        Tutup
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Panel Custom Time Picker */}
+                {activeSchedulePicker === 'time' && (
+                  <div className="space-y-3 rounded-xl border-2 border-[#252525] bg-white p-3.5 shadow-[3px_3px_0_#252525]">
+                    <div className="flex flex-wrap gap-1.5">
+                      {quickTimePresets.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            setFormTime(preset)
+                            setActiveSchedulePicker(null)
+                          }}
+                          className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition ${
+                            formTime === preset
+                              ? 'border-[#252525] bg-[#ffe69a] text-[#252525]'
+                              : 'border-[#d9cfbd] bg-[#f5f0e7] text-[#5e584f] hover:bg-[#eee8d9]'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <p className="mb-1 text-[11px] font-bold text-[#716b60]">
+                          Jam
+                        </p>
+                        <div className="grid max-h-32 grid-cols-4 gap-1 overflow-y-auto rounded-lg border border-[#e5ddcf] bg-[#fffaf1] p-1.5">
+                          {hourOptions.map((hr) => (
+                            <button
+                              key={hr}
+                              type="button"
+                              onClick={() =>
+                                setFormTime(
+                                  `${hr}:${selectedScheduleMinute || '00'}`,
+                                )
+                              }
+                              className={`rounded py-1 text-xs font-bold ${
+                                selectedScheduleHour === hr
+                                  ? 'bg-[#252525] text-white'
+                                  : 'text-[#4e4941] hover:bg-[#eee8d9]'
+                              }`}
+                            >
+                              {hr}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="mb-1 text-[11px] font-bold text-[#716b60]">
+                          Menit
+                        </p>
+                        <div className="grid max-h-32 grid-cols-3 gap-1 overflow-y-auto rounded-lg border border-[#e5ddcf] bg-[#fffaf1] p-1.5">
+                          {minuteOptions.map((min) => (
+                            <button
+                              key={min}
+                              type="button"
+                              onClick={() => {
+                                setFormTime(
+                                  `${selectedScheduleHour || '20'}:${min}`,
+                                )
+                                setActiveSchedulePicker(null)
+                              }}
+                              className={`rounded py-1 text-xs font-bold ${
+                                selectedScheduleMinute === min
+                                  ? 'bg-[#252525] text-white'
+                                  : 'text-[#4e4941] hover:bg-[#eee8d9]'
+                              }`}
+                            >
+                              {min}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setActiveSchedulePicker(null)}
+                        className="rounded-lg border border-[#252525] bg-[#ffe69a] px-3 py-1 text-[11px] font-bold"
+                      >
+                        Selesai ({formTime})
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold">
                     Kategori
                   </label>
                   <div className="grid grid-cols-2 gap-2">
@@ -1101,11 +1415,11 @@ export default function Calendar() {
                   </p>
                 )}
 
-                <div className="flex gap-2 pt-2">
+                <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={closeForm}
-                    className="flex-1 rounded-xl border-[1.5px] border-[#252525] bg-white px-4 py-3 text-xs font-bold hover:bg-[#f5f0e7]"
+                    className="rounded-xl px-4 py-3 text-xs font-semibold text-[#77716a] hover:bg-[#f0ece4]"
                   >
                     Batal
                   </button>
@@ -1114,7 +1428,7 @@ export default function Calendar() {
                     type="button"
                     data-sound="success"
                     onClick={saveSchedule}
-                    className="flex-1 rounded-xl border-2 border-[#252525] bg-[#D9CCFF] px-4 py-3 text-xs font-extrabold text-[#252525] shadow-[3px_3px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                    className="rounded-xl border-2 border-[#252525] bg-[#D9CCFF] px-5 py-3 text-xs font-extrabold text-[#252525] shadow-[3px_3px_0_#252525] transition active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
                   >
                     {editingAgenda ? 'Simpan Perubahan' : 'Simpan Jadwal'}
                   </button>

@@ -45,28 +45,51 @@ const ALLOWED_PROFILE_PHOTO_TYPES = [
   'image/webp',
 ]
 
+type StoredFocusTimer = FocusTimerState & {
+  dateKey?: string
+}
+
 function getMinutes(value: string, fallback: number) {
   const parsed = Number.parseInt(value, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-function getInitialFocusTimer(focusDuration: string): FocusTimerState {
+function formatDateKey(timestamp: number = Date.now()) {
+  const date = new Date(timestamp)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+function getDefaultFocusTimer(focusDuration: string): FocusTimerState {
   const defaultMinutes = getMinutes(focusDuration, 25)
 
-  const defaultTimer: FocusTimerState = {
+  return {
     mode: 'focus',
     status: 'idle',
     endsAt: null,
     remainingSeconds: defaultMinutes * 60,
     sessionMinutes: defaultMinutes,
   }
+}
+
+function getInitialFocusTimer(focusDuration: string): FocusTimerState {
+  const defaultTimer = getDefaultFocusTimer(focusDuration)
+  const todayKey = formatDateKey()
 
   try {
     const saved = localStorage.getItem(FOCUS_TIMER_STORAGE_KEY)
 
     if (!saved) return defaultTimer
 
-    const parsed = JSON.parse(saved) as Partial<FocusTimerState>
+    const parsed = JSON.parse(saved) as Partial<StoredFocusTimer>
+
+    // Reset otomatis ke mode fokus setiap berganti hari.
+    if (parsed.dateKey !== todayKey) {
+      return defaultTimer
+    }
 
     if (
       (parsed.mode !== 'focus' && parsed.mode !== 'break') ||
@@ -85,20 +108,11 @@ function getInitialFocusTimer(focusDuration: string): FocusTimerState {
       sessionMinutes:
         typeof parsed.sessionMinutes === 'number'
           ? parsed.sessionMinutes
-          : defaultMinutes,
+          : defaultTimer.sessionMinutes,
     }
   } catch {
     return defaultTimer
   }
-}
-
-function formatDateKey(timestamp: number = Date.now()) {
-  const date = new Date(timestamp)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-
-  return `${year}-${month}-${day}`
 }
 
 function formatTimeHHMM(date: Date) {
@@ -440,6 +454,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     getInitialFocusTimer(data.settings.focusDuration),
   )
 
+  const [timerDateKey, setTimerDateKey] = useState<string>(() =>
+    formatDateKey(),
+  )
+
   const [isCompletionSoundPlaying, setIsCompletionSoundPlaying] =
     useState(false)
 
@@ -502,17 +520,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Simpan timer secara terpisah agar tidak hilang saat berpindah halaman.
+  // Simpan timer beserta tanggal aktif agar otomatis reset saat berganti hari.
   useEffect(() => {
     try {
+      const payload: StoredFocusTimer = {
+        ...focusTimer,
+        dateKey: timerDateKey,
+      }
+
       localStorage.setItem(
         FOCUS_TIMER_STORAGE_KEY,
-        JSON.stringify(focusTimer),
+        JSON.stringify(payload),
       )
     } catch {
       // Abaikan jika penyimpanan penuh atau tidak tersedia.
     }
-  }, [focusTimer])
+  }, [focusTimer, timerDateKey])
+
+  // Reset timer otomatis ke mode fokus apabila hari berganti (00:00).
+  useEffect(() => {
+    const syncTimerDay = () => {
+      const currentDayKey = formatDateKey()
+
+      if (currentDayKey !== timerDateKey) {
+        setTimerDateKey(currentDayKey)
+
+        setFocusTimer((current) => {
+          if (current.status === 'running') return current
+          return getDefaultFocusTimer(data.settings.focusDuration)
+        })
+      }
+    }
+
+    syncTimerDay()
+
+    const interval = window.setInterval(syncTimerDay, 15000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        syncTimerDay()
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', syncTimerDay)
+
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', syncTimerDay)
+    }
+  }, [timerDateKey, data.settings.focusDuration])
 
   // Kelola background keep-alive agar timer tidak dibekukan HP saat keluar dari aplikasi.
   useEffect(() => {
@@ -869,6 +926,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (timerMode === 'focus') {
         const completedDateKey = formatDateKey(timerEndsAt)
+        setTimerDateKey(completedDateKey)
 
         setData((current) => {
           const previous = current.dailyRecords[completedDateKey] ?? {
@@ -912,6 +970,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       } else {
         const completedDateKey = formatDateKey(timerEndsAt)
+        setTimerDateKey(completedDateKey)
 
         setData((current) => {
           const previous = current.dailyRecords[completedDateKey] ?? {
@@ -996,6 +1055,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     startBackgroundTimerKeepAlive(focusTimer.mode)
 
     const nowMs = Date.now()
+    setTimerDateKey(formatDateKey(nowMs))
 
     setFocusTimer((current) => {
       const isResuming = current.status === 'paused'
@@ -1026,6 +1086,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function pauseFocusTimer() {
     stopBackgroundTimerKeepAlive()
     const nowMs = Date.now()
+    setTimerDateKey(formatDateKey(nowMs))
 
     setFocusTimer((current) => {
       if (current.status !== 'running' || current.endsAt === null) {
@@ -1049,6 +1110,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function resetFocusTimer() {
     stopBackgroundTimerKeepAlive()
     stopCompletionAlert()
+    setTimerDateKey(formatDateKey())
 
     setFocusTimer((current) => {
       const minutes = getMinutes(
@@ -1223,6 +1285,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       25,
     )
 
+    setTimerDateKey(formatDateKey())
     setFocusTimer({
       mode: 'focus',
       status: 'idle',
