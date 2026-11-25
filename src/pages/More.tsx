@@ -40,11 +40,15 @@ import {
   Square,
   LoaderCircle,
   Pencil,
+  Link2,
+  QrCode,
 } from 'lucide-react'
 
 import { useAppData } from '../hooks/AppContext'
 import type { AppData } from '../types/app'
 import { DEFAULT_PROFILE_PHOTO_URL } from '../components/layout/AppHeader'
+import LinkedDevicesModal from '../components/settings/LinkedDevicesModal'
+import { getSyncMetadata } from '../lib/cloudSync'
 import {
   DEFAULT_ALARM_TONE_KEY,
   DEFAULT_ALARM_TONES,
@@ -59,6 +63,7 @@ import {
 
 const INTERACTION_SOUND_KEY = 'bismillah-kelar-interaction-sound'
 const defaultAlarmTones = Object.values(DEFAULT_ALARM_TONES)
+
 function MarqueeText({
   text,
   className = '',
@@ -311,7 +316,7 @@ const infoContent: Record<
   privacy: {
     title: 'Privasi & Keamanan',
     description:
-      'Data aplikasi disimpan di penyimpanan browser pada perangkat yang digunakan. Data belum disinkronkan ke server. Jika data browser dihapus atau perangkat berganti, data dapat hilang. Karena itu, lakukan ekspor backup secara berkala.',
+      'Data aplikasi disimpan secara lokal di perangkatmu terlebih dahulu agar tetap berjalan 100% offline. Jika kamu menautkan perangkat via QR, data disinkronkan menggunakan kunci acak unik milikmu.',
     icon: ShieldCheck,
   },
   cache: {
@@ -400,6 +405,9 @@ export default function More({
 }: MoreProps) {
   const {
     data,
+    isOnline,
+    isSyncing,
+    syncNow,
     profilePhotoUrl,
     updateSettings,
     replaceData,
@@ -429,6 +437,7 @@ export default function More({
   const [activeInfo, setActiveInfo] = useState<InfoKey | null>(null)
   const [feedbackText, setFeedbackText] = useState('')
   const [showLocalStorageDetail, setShowLocalStorageDetail] = useState(false)
+  const [showLinkedDevices, setShowLinkedDevices] = useState(false)
   const [showPrayerEasterEgg, setShowPrayerEasterEgg] = useState(false)
 
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false)
@@ -463,7 +472,6 @@ export default function More({
     () => localStorage.getItem(INTERACTION_SOUND_KEY) !== 'false',
   )
 
-  // Animasi scroll otomatis dari kartu profil atas ke tengah bagian Notifikasi & Pengingat
   useEffect(() => {
     if (!scrollToNotificationsTick) return
 
@@ -917,6 +925,8 @@ export default function More({
     setFeedbackText('')
   }
 
+  const isDeviceLinked = Boolean(getSyncMetadata().syncKey)
+
   return (
     <div className="space-y-7 pb-5">
       {notice && (
@@ -1016,7 +1026,7 @@ export default function More({
         </div>
       </section>
 
-      {/* NOTIFICATIONS (Target Auto-Scroll ke Tengah Layar) */}
+      {/* NOTIFICATIONS */}
       <section ref={notificationsSectionRef} className="scroll-my-24">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#8b8177]">
@@ -1300,6 +1310,30 @@ export default function More({
           Data &amp; Cadangan
         </h3>
 
+        {/* KARTU PERANGKAT TERTAUT (BIRU MUDA) */}
+        <button
+          type="button"
+          onClick={() => setShowLinkedDevices(true)}
+          className="mb-3 w-full rounded-2xl border-2 border-[#252525] bg-[#93C5FD] p-4 text-left shadow-[3px_3px_0px_#252525] transition hover:brightness-[0.98] active:translate-y-0.5 active:shadow-none"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#252525] bg-white px-3 py-1 text-xs font-extrabold text-[#1e3a8a]">
+              <Link2 size={15} />
+              Perangkat Tertaut
+            </span>
+
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#252525] bg-[#FFE69A] px-2.5 py-0.5 text-[10px] font-extrabold text-[#252525]">
+              <QrCode size={12} />
+              {isDeviceLinked ? 'Tersinkron' : 'Tautkan QR'}
+            </span>
+          </div>
+
+          <p className="mt-2.5 text-xs leading-relaxed text-[#1e3a8a]">
+            Tautkan HP dan laptop dengan QR dinamis. Tetap bekerja 100% offline dan otomatis sinkron saat terhubung ke internet.
+          </p>
+        </button>
+
+        {/* KARTU PENYIMPANAN LOKAL */}
         <button
           type="button"
           onClick={() => setShowLocalStorageDetail((current) => !current)}
@@ -1330,13 +1364,13 @@ export default function More({
           {showLocalStorageDetail && (
             <div className="mt-3 space-y-2 rounded-xl border border-[#252525]/25 bg-white/85 p-3 text-xs leading-relaxed text-[#252525]">
               <p>
-                <strong>1. 100% Offline &amp; Privat:</strong> Target dan tugas, agenda kalender, progres, dan pengaturan tersimpan langsung di memori browser HP/laptop kamu tanpa dikirim ke server mana pun.
+                <strong>1. 100% Offline &amp; Privat:</strong> Target dan tugas, agenda kalender, progres, dan pengaturan tersimpan langsung di memori browser HP/laptop kamu.
               </p>
               <p>
                 <strong>2. Media &amp; Audio Lokal:</strong> Foto profil kustom dan file audio MP3 disimpan di database perangkat (IndexedDB) agar tetap responsif tanpa internet.
               </p>
               <p>
-                <strong>3. Cadangan Berkala:</strong> Karena data berada di browser perangkat ini, gunakan tombol <em>Ekspor Data Pribadi</em> di bawah sebelum menghapus data browser atau berganti perangkat.
+                <strong>3. Sinkronisasi Otomatis Saat Online:</strong> Jika ditautkan via Perangkat Tertaut, perubahan offline otomatis disinkronkan saat internet aktif.
               </p>
             </div>
           )}
@@ -1399,7 +1433,6 @@ export default function More({
           />
         </div>
 
-        {/* Kartu Filosofi & Doa */}
         <div
           onClick={() => setShowPrayerEasterEgg((current) => !current)}
           className="mt-3 rounded-2xl border border-[#252525]/20 bg-[#fff2d5] p-4"
@@ -1449,6 +1482,17 @@ export default function More({
           Tanpa beban, fokus bertumbuh.
         </p>
       </footer>
+
+      {/* MODAL PERANGKAT TERTAUT */}
+      <LinkedDevicesModal
+        isOpen={showLinkedDevices}
+        onClose={() => setShowLinkedDevices(false)}
+        currentData={data}
+        onApplySyncedData={replaceData}
+        onSyncNow={syncNow}
+        isSyncing={isSyncing}
+        isOnline={isOnline}
+      />
 
       {/* OPTION MODAL */}
       {selectedOption &&

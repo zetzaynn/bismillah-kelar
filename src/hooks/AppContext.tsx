@@ -35,6 +35,13 @@ import {
   deleteProfilePhoto,
 } from '../lib/audioStorage'
 
+import {
+  getSyncMetadata,
+  markPendingLocalChange,
+  pullDataFromCloud,
+  pushDataToCloud,
+} from '../lib/cloudSync'
+
 const FOCUS_TIMER_STORAGE_KEY = 'bismillah-kelar-focus-timer'
 const SENT_REMINDERS_STORAGE_KEY = 'bismillah-kelar-sent-reminders'
 const TIMER_NOTIFICATION_TAG = 'bismillah-kelar-timer'
@@ -86,7 +93,6 @@ function getInitialFocusTimer(focusDuration: string): FocusTimerState {
 
     const parsed = JSON.parse(saved) as Partial<StoredFocusTimer>
 
-    // Reset otomatis ke mode fokus setiap berganti hari.
     if (parsed.dateKey !== todayKey) {
       return defaultTimer
     }
@@ -180,7 +186,6 @@ function getAudioContextClass() {
   )
 }
 
-// Mengelola suara cadangan jika file audio utama gagal dimuat.
 let sharedAudioContext: AudioContext | null = null
 let fallbackAudioTimeout: number | null = null
 let fallbackAudioInterval: number | null = null
@@ -219,7 +224,6 @@ function stopTimerSound() {
   callback?.(false)
 }
 
-// Suara cadangan jika MP3 belum tersedia atau gagal diputar.
 function playTimerSound(
   volume: number = 1,
   onPlaybackChange?: (playing: boolean) => void,
@@ -322,7 +326,6 @@ function playTimerSound(
   }
 }
 
-// Mengirim notifikasi perangkat (mendukung browser desktop maupun PWA Android di latar belakang).
 export function sendDeviceNotification(
   title: string,
   body: string,
@@ -361,7 +364,6 @@ export function sendDeviceNotification(
   }
 }
 
-// Web Worker ringan agar detak pemeriksaan timer tidak diperlambat browser saat pindah tab/aplikasi.
 function createUnthrottledTicker(onTick: () => void): () => void {
   if (typeof window === 'undefined' || typeof Worker === 'undefined') {
     const id = window.setInterval(onTick, 250)
@@ -403,6 +405,10 @@ function createUnthrottledTicker(onTick: () => void): () => void {
 
 interface AppContextType {
   data: AppData
+
+  isOnline: boolean
+  isSyncing: boolean
+  syncNow: () => Promise<void>
 
   profilePhotoUrl: string | null
   updateProfile: (updates: Partial<UserProfile>) => void
@@ -446,6 +452,15 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 export function AppProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(() => getAppData())
 
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  )
+  const [isSyncing, setIsSyncing] = useState(false)
+  const isApplyingRemoteRef = useRef(false)
+  const syncDebounceRef = useRef<number | null>(null)
+  const latestDataRef = useRef<AppData>(data)
+  latestDataRef.current = data
+
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null)
 
   const profilePhotoUrlRef = useRef<string | null>(null)
@@ -471,10 +486,86 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const hasActiveCompletionAlert =
     isCompletionSoundPlaying || isCompletionNotificationActive
 
-  // Simpan data utama aplikasi.
+  async function syncNow() {
+    const meta = getSyncMetadata()
+    if (!meta.syncKey || !meta.isConfigured || !navigator.onLine) return
+
+    setIsSyncing(true)
+    try {
+      if (meta.hasPendingPush) {
+        await pushDataToCloud(meta.syncKey, latestDataRef.current)
+      } else {
+        const remote = await pullDataFromCloud(meta.syncKey)
+        if (remote?.payload) {
+          isApplyingRemoteRef.current = true
+          replaceData(remote.payload)
+        }
+      }
+    } catch (error) {
+      console.warn('Sinkronisasi tertunda (akan dicoba lagi saat online):', error)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  // Simpan data utama aplikasi & antrekan sinkronisasi cloud
   useEffect(() => {
     saveAppData(data)
+
+    if (isApplyingRemoteRef.current) {
+      isApplyingRemoteRef.current = false
+      return
+    }
+
+    const meta = getSyncMetadata()
+    if (!meta.syncKey || !meta.isConfigured) return
+
+    markPendingLocalChange()
+
+    if (!navigator.onLine) return
+
+    if (syncDebounceRef.current !== null) {
+      window.clearTimeout(syncDebounceRef.current)
+    }
+
+    syncDebounceRef.current = window.setTimeout(() => {
+      void pushDataToCloud(meta.syncKey!, data).catch(() => {})
+    }, 1500)
+
+    return () => {
+      if (syncDebounceRef.current !== null) {
+        window.clearTimeout(syncDebounceRef.current)
+      }
+    }
   }, [data])
+
+  // Pantau status online/offline & tarik pembaruan saat aplikasi kembali aktif
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      void syncNow()
+    }
+    const handleOffline = () => setIsOnline(false)
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void syncNow()
+      }
+    }
+
+    if (navigator.onLine) {
+      void syncNow()
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    document.addEventListener('visibilitychange', handleVisible)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+      document.removeEventListener('visibilitychange', handleVisible)
+    }
+  }, [])
 
   // Memuat foto profil dari IndexedDB saat aplikasi dibuka.
   useEffect(() => {
@@ -571,7 +662,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [timerDateKey, data.settings.focusDuration])
 
-  // Kelola background keep-alive agar timer tidak dibekukan HP saat keluar dari aplikasi.
   useEffect(() => {
     if (focusTimer.status === 'running') {
       startBackgroundTimerKeepAlive(focusTimer.mode)
@@ -580,7 +670,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [focusTimer.status, focusTimer.mode])
 
-  // Sinkronkan durasi timer jika pengaturan diubah saat status idle.
   useEffect(() => {
     setFocusTimer((current) => {
       if (current.status !== 'idle') return current
@@ -609,7 +698,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [data.settings.focusDuration, data.settings.breakDuration])
 
-  // Mengganti URL foto profil yang sedang ditampilkan.
   function setProfilePhoto(blob: Blob | null) {
     if (profilePhotoUrlRef.current) {
       URL.revokeObjectURL(profilePhotoUrlRef.current)
@@ -627,7 +715,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProfilePhotoUrl(url)
   }
 
-  // Memperbarui data profil.
   function updateProfile(updates: Partial<UserProfile>) {
     setData((current) => ({
       ...current,
@@ -638,7 +725,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-  // Menyimpan foto profil ke IndexedDB tanpa batas ukuran file.
   async function updateProfilePhoto(file: File) {
     if (!ALLOWED_PROFILE_PHOTO_TYPES.includes(file.type)) {
       throw new Error('Format foto harus JPG, PNG, atau WebP.')
@@ -657,7 +743,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-  // Menghapus foto profil dari IndexedDB.
   async function removeProfilePhoto() {
     await deleteProfilePhoto()
 
@@ -672,9 +757,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-  // Menghentikan suara yang terus berbunyi dan menutup notifikasi timer.
   function stopCompletionAlert() {
-    // Batalkan pemutaran yang mungkin masih menunggu data audio.
     completionPlaybackIdRef.current += 1
 
     stopTimerEndSound()
@@ -700,7 +783,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setIsCompletionNotificationActive(false)
   }
 
-  // Menampilkan notifikasi timer yang bisa ditutup dari aplikasi.
   function showCompletionNotification(title: string, body: string) {
     if (
       typeof window === 'undefined' ||
@@ -741,7 +823,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Memutar audio default ("The Phone Lingering") / MP3 pilihan secara berulang hingga dihentikan.
   async function playCompletionSound(volume: number) {
     const playbackId = ++completionPlaybackIdRef.current
 
@@ -754,7 +835,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         true,
       )
 
-      // Jangan putar suara cadangan jika proses sudah dibatalkan.
       if (playbackId !== completionPlaybackIdRef.current) {
         return
       }
@@ -772,7 +852,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Pengingat otomatis jadwal, tenggat tugas, dan rutinitas harian via notifikasi perangkat.
   useEffect(() => {
     const checkScheduledReminders = () => {
       if (
@@ -789,7 +868,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const currentTotalMinutes = now.getHours() * 60 + now.getMinutes()
       const sent = getSentReminders()
 
-      // 1. Pengingat tugas harian pukul 07:00
       if (
         data.settings.notifications.daily &&
         currentHHMM === '07:00'
@@ -810,7 +888,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 2. Pengingat agenda hari ini saat jam jadwal tiba
       if (data.settings.notifications.daily) {
         const todayAgendas = data.agenda[todayKey] ?? []
         for (const item of todayAgendas) {
@@ -830,7 +907,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 3. Pengingat deadline tugas (2 jam sebelum tenggat & saat waktu tenggat tiba)
       if (data.settings.notifications.deadline) {
         const todayTasks = data.tasks.filter(
           (t) => t.date === todayKey && t.status === 'todo',
@@ -865,7 +941,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 4. Pengingat refleksi malam hari pukul 21:30
       if (
         data.settings.notifications.reflection &&
         currentHHMM === '21:30'
@@ -905,7 +980,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     data.settings.notifications.reflection,
   ])
 
-  // Timer berjalan di tingkat AppProvider dengan Web Worker agar tetap akurat di luar aplikasi.
   useEffect(() => {
     if (focusTimer.status !== 'running' || focusTimer.endsAt === null) {
       return
@@ -1046,10 +1120,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ])
 
   function startFocusTimer() {
-    // Pastikan audio alarm yang berbunyi otomatis mati sebelum sesi dimulai.
     stopCompletionAlert()
 
-    // Buka izin elemen audio & AudioContext selama interaksi pengguna agar tetap bisa berbunyi di luar aplikasi.
     void primeTimerEndSound()
     unlockFallbackAudioContext()
     startBackgroundTimerKeepAlive(focusTimer.mode)
@@ -1153,7 +1225,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-  // Menambahkan rutinitas baru.
   function addHabit(habit: Omit<Habit, 'id'>) {
     setData((current) => {
       const nextId =
@@ -1174,7 +1245,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  // Mengubah rutinitas.
   function updateHabit(id: number, updates: Partial<Habit>) {
     setData((current) => ({
       ...current,
@@ -1186,7 +1256,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-  // Menghapus rutinitas.
   function deleteHabit(id: number) {
     setData((current) => ({
       ...current,
@@ -1307,6 +1376,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider
       value={{
         data,
+
+        isOnline,
+        isSyncing,
+        syncNow,
 
         profilePhotoUrl,
         updateProfile,
