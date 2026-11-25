@@ -172,7 +172,7 @@ export default function LinkedDevicesModal({
         setSessionCode(null)
 
         try {
-          const pulled = await pullDataFromCloud(row.sync_key)
+          const pulled = await pullDataFromCloud(row.sync_key, true)
           if (pulled?.payload) {
             onApplySyncedData(pulled.payload)
           }
@@ -360,23 +360,23 @@ export default function LinkedDevicesModal({
                     text: 'Data berhasil disinkronkan.',
                   })
                 }}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border-[1.5px] border-[#252525] bg-[#93C5FD] py-2 text-xs font-extrabold text-[#252525] shadow-[2px_2px_0_#252525] transition active:translate-y-0.5 active:shadow-none disabled:opacity-50"
+                className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border-[1.5px] border-[#252525] bg-[#93C5FD] px-3 py-2.5 text-xs font-extrabold text-[#252525] shadow-[2px_2px_0_#252525] transition active:translate-y-0.5 active:shadow-none disabled:opacity-50"
               >
                 <RefreshCw
                   size={14}
-                  className={isSyncing ? 'animate-spin' : ''}
+                  className={`shrink-0 ${isSyncing ? 'animate-spin' : ''}`}
                 />
-                {isSyncing ? 'Menyinkronkan...' : 'Sinkronkan Sekarang'}
+                <span>{isSyncing ? 'Menyinkronkan...' : 'Sinkronkan'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleUnlink}
-                className="flex items-center justify-center gap-1 rounded-xl border-[1.5px] border-[#252525] bg-white px-3 py-2 text-xs font-bold text-[#991b1b] hover:bg-[#fee2e2]"
+                className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border-[1.5px] border-[#252525] bg-white px-3.5 py-2.5 text-xs font-bold text-[#991b1b] hover:bg-[#fee2e2]"
                 title="Putuskan tautan perangkat ini"
               >
-                <Unlink size={14} />
-                Putus
+                <Unlink size={14} className="shrink-0" />
+                <span>Putus</span>
               </button>
             </div>
           )}
@@ -389,14 +389,14 @@ export default function LinkedDevicesModal({
               setStatusMsg(null)
               setTab('show-qr')
             }}
-            className={`flex items-center justify-center gap-1.5 rounded-xl border-2 border-[#252525] py-2.5 text-xs font-extrabold transition ${
+            className={`flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border-2 border-[#252525] px-3 py-2.5 text-xs font-extrabold transition ${
               tab === 'show-qr'
                 ? 'bg-[#93C5FD] text-[#252525] shadow-[2px_2px_0_#252525]'
                 : 'bg-white text-[#64748b] hover:bg-[#f5f0e7]'
             }`}
           >
-            <QrCode size={15} />
-            Tampilkan QR
+            <QrCode size={15} className="shrink-0" />
+            <span>Tampilkan QR</span>
           </button>
 
           <button
@@ -405,14 +405,14 @@ export default function LinkedDevicesModal({
               setStatusMsg(null)
               setTab('scan')
             }}
-            className={`flex items-center justify-center gap-1.5 rounded-xl border-2 border-[#252525] py-2.5 text-xs font-extrabold transition ${
+            className={`flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border-2 border-[#252525] px-3 py-2.5 text-xs font-extrabold transition ${
               tab === 'scan'
                 ? 'bg-[#93C5FD] text-[#252525] shadow-[2px_2px_0_#252525]'
                 : 'bg-white text-[#64748b] hover:bg-[#f5f0e7]'
             }`}
           >
-            <Camera size={15} />
-            Scan QR / Kode
+            <Camera size={15} className="shrink-0" />
+            <span>Scan QR</span>
           </button>
         </div>
 
@@ -475,10 +475,10 @@ export default function LinkedDevicesModal({
                 type="button"
                 onClick={() => void startCameraScanner()}
                 disabled={claiming || !isOnline}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#252525] bg-[#93C5FD] py-3 text-xs font-extrabold text-[#252525] shadow-[3px_3px_0_#252525] transition active:translate-y-0.5 active:shadow-none disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border-2 border-[#252525] bg-[#93C5FD] py-3 text-xs font-extrabold text-[#252525] shadow-[3px_3px_0_#252525] transition active:translate-y-0.5 active:shadow-none disabled:opacity-50"
               >
-                <Camera size={16} />
-                Buka Kamera Scan QR
+                <Camera size={16} className="shrink-0" />
+                <span>Buka Kamera Scan QR</span>
               </button>
             ) : (
               <div className="space-y-2">
@@ -517,14 +517,14 @@ export default function LinkedDevicesModal({
                 type="button"
                 disabled={!manualCode.trim() || claiming || !isOnline}
                 onClick={() => void handleClaimCode(manualCode)}
-                className="flex items-center gap-1 rounded-xl border-2 border-[#252525] bg-[#93C5FD] px-4 py-2.5 text-xs font-extrabold text-[#252525] shadow-[2px_2px_0_#252525] disabled:opacity-50"
+                className="flex items-center justify-center gap-1 whitespace-nowrap rounded-xl border-2 border-[#252525] bg-[#93C5FD] px-4 py-2.5 text-xs font-extrabold text-[#252525] shadow-[2px_2px_0_#252525] disabled:opacity-50"
               >
                 {claiming ? (
-                  <LoaderCircle size={14} className="animate-spin" />
+                  <LoaderCircle size={14} className="shrink-0 animate-spin" />
                 ) : (
-                  <Check size={14} />
+                  <Check size={14} className="shrink-0" />
                 )}
-                Tautkan
+                <span>Tautkan</span>
               </button>
             </div>
           </div>

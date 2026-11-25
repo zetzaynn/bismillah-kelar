@@ -408,7 +408,7 @@ interface AppContextType {
 
   isOnline: boolean
   isSyncing: boolean
-  syncNow: () => Promise<void>
+  syncNow: (forcePull?: boolean) => Promise<void>
 
   profilePhotoUrl: string | null
   updateProfile: (updates: Partial<UserProfile>) => void
@@ -486,17 +486,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const hasActiveCompletionAlert =
     isCompletionSoundPlaying || isCompletionNotificationActive
 
-  async function syncNow() {
+  async function reloadSyncedProfilePhoto() {
+    try {
+      const photo = await getProfilePhoto()
+      if (profilePhotoUrlRef.current) {
+        URL.revokeObjectURL(profilePhotoUrlRef.current)
+        profilePhotoUrlRef.current = null
+      }
+      if (photo) {
+        const url = URL.createObjectURL(photo)
+        profilePhotoUrlRef.current = url
+        setProfilePhotoUrl(url)
+      } else {
+        setProfilePhotoUrl(null)
+      }
+    } catch {
+      // Abaikan jika gagal memuat ulang foto
+    }
+  }
+
+  async function syncNow(forcePull: boolean = false) {
     const meta = getSyncMetadata()
     if (!meta.syncKey || !meta.isConfigured || !navigator.onLine) return
 
     setIsSyncing(true)
     try {
-      if (meta.hasPendingPush) {
+      if (meta.hasPendingPush && !forcePull) {
         await pushDataToCloud(meta.syncKey, latestDataRef.current)
       } else {
-        const remote = await pullDataFromCloud(meta.syncKey)
+        const remote = await pullDataFromCloud(meta.syncKey, forcePull)
         if (remote?.payload) {
+          if (remote.mediaUpdated) {
+            await reloadSyncedProfilePhoto()
+          }
           isApplyingRemoteRef.current = true
           replaceData(remote.payload)
         }
@@ -539,7 +561,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [data])
 
-  // Pantau status online/offline & tarik pembaruan saat aplikasi kembali aktif
+  // Pantau status online/offline & cek pembaruan tiap 5 detik
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true)
@@ -556,11 +578,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       void syncNow()
     }
 
+    const pollTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void syncNow()
+      }
+    }, 5000)
+
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     document.addEventListener('visibilitychange', handleVisible)
 
     return () => {
+      window.clearInterval(pollTimer)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
       document.removeEventListener('visibilitychange', handleVisible)

@@ -1,4 +1,11 @@
 import type { AppData } from '../types/app'
+import {
+  deleteTimerSound,
+  getProfilePhoto,
+  getTimerSound,
+  saveProfilePhoto,
+  saveTimerSound,
+} from './audioStorage'
 
 const SUPABASE_URL = 'https://mpdumvqbibevxtfzdudl.supabase.co'
 const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim()
@@ -24,6 +31,18 @@ export interface PairingSessionRow {
   target_device_name: string | null
   status: 'pending' | 'claimed'
   expires_at: string
+}
+
+interface SyncedMediaBundle {
+  profilePhotoBase64?: string | null
+  profilePhotoType?: string | null
+  customSoundBase64?: string | null
+  customSoundName?: string | null
+  customSoundType?: string | null
+}
+
+type CloudPayloadEnvelope = AppData & {
+  __syncedMedia?: SyncedMediaBundle
 }
 
 export function isSupabaseConfigured(): boolean {
@@ -107,14 +126,110 @@ export function markPendingLocalChange() {
   localStorage.setItem(PENDING_PUSH_STORAGE, 'true')
 }
 
-// 1. Membuat sesi QR dinamis (berlaku 60 detik) dengan timeout 10 detik
+// Helper konversi Blob <-> Base64 untuk sinkronisasi Foto Profil & Audio MP3
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Gagal membaca file media.'))
+      }
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function base64ToBlob(dataUrl: string, fallbackType: string): Promise<Blob> {
+  const res = await fetch(dataUrl)
+  const blob = await res.blob()
+  if (blob.type) return blob
+  return new Blob([blob], { type: fallbackType })
+}
+
+async function packLocalMedia(): Promise<SyncedMediaBundle> {
+  const bundle: SyncedMediaBundle = {
+    profilePhotoBase64: null,
+    profilePhotoType: null,
+    customSoundBase64: null,
+    customSoundName: null,
+    customSoundType: null,
+  }
+
+  try {
+    const photoBlob = await getProfilePhoto()
+    if (photoBlob && photoBlob.size <= 3 * 1024 * 1024) {
+      bundle.profilePhotoBase64 = await blobToBase64(photoBlob)
+      bundle.profilePhotoType = photoBlob.type || 'image/jpeg'
+    }
+  } catch {
+    // Abaikan jika foto gagal dibaca
+  }
+
+  try {
+    const soundRecord = await getTimerSound()
+    if (soundRecord?.blob && soundRecord.blob.size <= 5 * 1024 * 1024) {
+      bundle.customSoundBase64 = await blobToBase64(soundRecord.blob)
+      bundle.customSoundName = soundRecord.name
+      bundle.customSoundType = soundRecord.blob.type || 'audio/mpeg'
+    }
+  } catch {
+    // Abaikan jika audio gagal dibaca
+  }
+
+  return bundle
+}
+
+async function unpackRemoteMedia(bundle?: SyncedMediaBundle): Promise<boolean> {
+  if (!bundle) return false
+  let photoUpdated = false
+
+  try {
+    if (bundle.profilePhotoBase64) {
+      const photoBlob = await base64ToBlob(
+        bundle.profilePhotoBase64,
+        bundle.profilePhotoType || 'image/jpeg',
+      )
+      const photoFile = new File([photoBlob], 'synced-profile-photo.jpg', {
+        type: bundle.profilePhotoType || 'image/jpeg',
+      })
+      await saveProfilePhoto(photoFile)
+      photoUpdated = true
+    }
+  } catch {
+    // Abaikan jika gagal menyimpan foto ke IndexedDB
+  }
+
+  try {
+    if (bundle.customSoundBase64 && bundle.customSoundName) {
+      const soundBlob = await base64ToBlob(
+        bundle.customSoundBase64,
+        bundle.customSoundType || 'audio/mpeg',
+      )
+      const file = new File([soundBlob], bundle.customSoundName, {
+        type: bundle.customSoundType || 'audio/mpeg',
+      })
+      await saveTimerSound(file)
+    } else if (bundle.customSoundBase64 === null) {
+      await deleteTimerSound()
+    }
+  } catch {
+    // Abaikan jika gagal menyimpan MP3 ke IndexedDB
+  }
+
+  return photoUpdated
+}
+
+// 1. Membuat sesi QR dinamis (berlaku 60 detik)
 export async function createDynamicPairingSession(): Promise<{
   sessionCode: string
   expiresAt: number
 }> {
   if (!isSupabaseConfigured()) {
     throw new Error(
-      'Variabel VITE_SUPABASE_URL / ANON_KEY belum terbaca. Coba Redeploy di Vercel.',
+      'Variabel VITE_SUPABASE_ANON_KEY belum terbaca. Periksa pengaturan Vercel.',
     )
   }
 
@@ -149,7 +264,7 @@ export async function createDynamicPairingSession(): Promise<{
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error(
-        'Koneksi ke Supabase timeout (lebih dari 10 detik). Periksa jaringan atau URL Supabase.',
+        'Koneksi ke Supabase timeout (lebih dari 10 detik). Periksa internetmu.',
       )
     }
     throw err
@@ -193,13 +308,13 @@ export async function deletePairingSession(sessionCode: string): Promise<void> {
   ).catch(() => {})
 }
 
-// 4. Dipanggil perangkat utama (misal HP) setelah berhasil scan QR / input kode perangkat baru
+// 4. Dipanggil perangkat utama setelah berhasil scan QR / input kode
 export async function approvePairingSession(
   rawScannedCode: string,
   currentData: AppData,
 ): Promise<{ syncKey: string; targetDevice: string }> {
   if (!isSupabaseConfigured()) {
-    throw new Error('Konfigurasi Supabase (.env) belum diisi.')
+    throw new Error('Konfigurasi Supabase belum diisi.')
   }
 
   const cleaned = rawScannedCode.trim().toUpperCase()
@@ -248,7 +363,7 @@ export async function approvePairingSession(
   }
 }
 
-// 5. Upload data lokal ke cloud
+// 5. Upload data lokal + media IndexedDB (Foto & MP3) ke cloud
 export async function pushDataToCloud(
   syncKey: string,
   payload: AppData,
@@ -258,6 +373,11 @@ export async function pushDataToCloud(
   }
 
   const nowIso = new Date().toISOString()
+  const mediaBundle = await packLocalMedia()
+  const envelope: CloudPayloadEnvelope = {
+    ...payload,
+    __syncedMedia: mediaBundle,
+  }
 
   const response = await fetch(`${SUPABASE_URL}/rest/v1/user_sync_data`, {
     method: 'POST',
@@ -266,7 +386,7 @@ export async function pushDataToCloud(
     }),
     body: JSON.stringify({
       sync_key: syncKey,
-      payload,
+      payload: envelope,
       updated_at: nowIso,
       updated_by_device: detectDeviceName(),
     }),
@@ -281,10 +401,15 @@ export async function pushDataToCloud(
   return nowIso
 }
 
-// 6. Download data terbaru dari cloud
+// 6. Download data terbaru dari cloud (hanya jika versi cloud lebih baru daripada terakhir disinkronkan)
 export async function pullDataFromCloud(
   syncKey: string,
-): Promise<{ payload: AppData; updatedAt: string } | null> {
+  force: boolean = false,
+): Promise<{
+  payload: AppData
+  updatedAt: string
+  mediaUpdated: boolean
+} | null> {
   if (!isSupabaseConfigured()) return null
 
   const response = await fetch(
@@ -302,17 +427,26 @@ export async function pullDataFromCloud(
   }
 
   const rows = (await response.json()) as {
-    payload: AppData
+    payload: CloudPayloadEnvelope
     updated_at: string
   }[]
 
   if (!rows[0]) return null
 
+  const lastLocalSync = localStorage.getItem(LAST_SYNCED_AT_STORAGE)
+  if (!force && lastLocalSync && rows[0].updated_at <= lastLocalSync) {
+    return null
+  }
+
+  const { __syncedMedia, ...cleanAppData } = rows[0].payload
+  const mediaUpdated = await unpackRemoteMedia(__syncedMedia)
+
   localStorage.setItem(LAST_SYNCED_AT_STORAGE, rows[0].updated_at)
   localStorage.removeItem(PENDING_PUSH_STORAGE)
 
   return {
-    payload: rows[0].payload,
+    payload: cleanAppData as AppData,
     updatedAt: rows[0].updated_at,
+    mediaUpdated,
   }
 }

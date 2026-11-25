@@ -1489,7 +1489,7 @@ export default function More({
         onClose={() => setShowLinkedDevices(false)}
         currentData={data}
         onApplySyncedData={replaceData}
-        onSyncNow={syncNow}
+        onSyncNow={() => syncNow(true)}
         isSyncing={isSyncing}
         isOnline={isOnline}
       />
