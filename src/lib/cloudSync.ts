@@ -15,6 +15,7 @@ const DEVICE_ID_STORAGE = 'bismillah-kelar-device-id'
 const DEVICE_NAME_STORAGE = 'bismillah-kelar-device-name'
 const LAST_SYNCED_AT_STORAGE = 'bismillah-kelar-last-synced-at'
 const PENDING_PUSH_STORAGE = 'bismillah-kelar-pending-push'
+const LAST_MEDIA_HASH_STORAGE = 'bismillah-kelar-last-media-hash'
 
 export interface SyncMetadata {
   syncKey: string | null
@@ -55,6 +56,27 @@ function getHeaders(extra?: Record<string, string>) {
     Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     'Content-Type': 'application/json',
     ...extra,
+  }
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = 25_000,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(
+        'Koneksi ke server Supabase lambat/timeout. Pastikan proyek Supabase aktif & internet stabil.',
+      )
+    }
+    throw err
+  } finally {
+    window.clearTimeout(timer)
   }
 }
 
@@ -109,6 +131,7 @@ export function setSyncKey(key: string | null) {
     localStorage.removeItem(SYNC_KEY_STORAGE)
     localStorage.removeItem(LAST_SYNCED_AT_STORAGE)
     localStorage.removeItem(PENDING_PUSH_STORAGE)
+    localStorage.removeItem(LAST_MEDIA_HASH_STORAGE)
   }
 }
 
@@ -126,16 +149,39 @@ export function markPendingLocalChange() {
   localStorage.setItem(PENDING_PUSH_STORAGE, 'true')
 }
 
-// Helper konversi Blob <-> Base64 untuk sinkronisasi Foto Profil & Audio MP3
+// Kompres foto profil menjadi ringan (~25 KB) sebelum dikirim ke cloud
+function compressImageToDataUrl(blob: Blob, maxDim = 256): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(blob)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(img.width * scale))
+      canvas.height = Math.max(1, Math.round(img.height * scale))
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Canvas tidak tersedia'))
+        return
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/jpeg', 0.8))
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Gagal memproses gambar'))
+    }
+    img.src = url
+  })
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result)
-      } else {
-        reject(new Error('Gagal membaca file media.'))
-      }
+      if (typeof reader.result === 'string') resolve(reader.result)
+      else reject(new Error('Gagal membaca file media.'))
     }
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(blob)
@@ -145,8 +191,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 async function base64ToBlob(dataUrl: string, fallbackType: string): Promise<Blob> {
   const res = await fetch(dataUrl)
   const blob = await res.blob()
-  if (blob.type) return blob
-  return new Blob([blob], { type: fallbackType })
+  return blob.type ? blob : new Blob([blob], { type: fallbackType })
 }
 
 async function packLocalMedia(): Promise<SyncedMediaBundle> {
@@ -160,17 +205,18 @@ async function packLocalMedia(): Promise<SyncedMediaBundle> {
 
   try {
     const photoBlob = await getProfilePhoto()
-    if (photoBlob && photoBlob.size <= 3 * 1024 * 1024) {
-      bundle.profilePhotoBase64 = await blobToBase64(photoBlob)
-      bundle.profilePhotoType = photoBlob.type || 'image/jpeg'
+    if (photoBlob) {
+      bundle.profilePhotoBase64 = await compressImageToDataUrl(photoBlob, 256)
+      bundle.profilePhotoType = 'image/jpeg'
     }
   } catch {
-    // Abaikan jika foto gagal dibaca
+    // Abaikan jika foto gagal dikompresi
   }
 
   try {
     const soundRecord = await getTimerSound()
-    if (soundRecord?.blob && soundRecord.blob.size <= 5 * 1024 * 1024) {
+    // Batasi MP3 sinkronisasi maksimal 1.5 MB agar tidak timeout di mobile
+    if (soundRecord?.blob && soundRecord.blob.size <= 1.5 * 1024 * 1024) {
       bundle.customSoundBase64 = await blobToBase64(soundRecord.blob)
       bundle.customSoundName = soundRecord.name
       bundle.customSoundType = soundRecord.blob.type || 'audio/mpeg'
@@ -237,40 +283,29 @@ export async function createDynamicPairingSession(): Promise<{
   const expiresAtMs = Date.now() + 60_000
   const expiresAtIso = new Date(expiresAtMs).toISOString()
 
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), 10_000)
-
-  try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/pairing_sessions`, {
+  const response = await fetchWithTimeout(
+    `${SUPABASE_URL}/rest/v1/pairing_sessions`,
+    {
       method: 'POST',
       headers: getHeaders({ Prefer: 'return=minimal' }),
-      signal: controller.signal,
       body: JSON.stringify({
         session_code: sessionCode,
         target_device_name: detectDeviceName(),
         status: 'pending',
         expires_at: expiresAtIso,
       }),
-    })
+    },
+    20_000,
+  )
 
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new Error(
-        `Supabase error (${response.status}): ${detail || 'Tabel pairing_sessions belum siap.'}`,
-      )
-    }
-
-    return { sessionCode, expiresAt: expiresAtMs }
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error(
-        'Koneksi ke Supabase timeout (lebih dari 10 detik). Periksa internetmu.',
-      )
-    }
-    throw err
-  } finally {
-    window.clearTimeout(timeoutId)
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(
+      `Supabase error (${response.status}): ${detail || 'Tabel pairing_sessions belum siap.'}`,
+    )
   }
+
+  return { sessionCode, expiresAt: expiresAtMs }
 }
 
 // 2. Mengecek apakah QR sesi kita sudah di-scan oleh perangkat utama
@@ -279,7 +314,7 @@ export async function pollPairingSession(
 ): Promise<PairingSessionRow | null> {
   if (!isSupabaseConfigured()) return null
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${SUPABASE_URL}/rest/v1/pairing_sessions?session_code=eq.${encodeURIComponent(
       sessionCode,
     )}&select=*`,
@@ -287,9 +322,10 @@ export async function pollPairingSession(
       method: 'GET',
       headers: getHeaders(),
     },
-  )
+    10_000,
+  ).catch(() => null)
 
-  if (!response.ok) return null
+  if (!response || !response.ok) return null
   const rows = (await response.json()) as PairingSessionRow[]
   return rows[0] ?? null
 }
@@ -297,7 +333,7 @@ export async function pollPairingSession(
 // 3. Menghapus sesi QR setelah berhasil tertaut atau kedaluwarsa
 export async function deletePairingSession(sessionCode: string): Promise<void> {
   if (!isSupabaseConfigured()) return
-  await fetch(
+  await fetchWithTimeout(
     `${SUPABASE_URL}/rest/v1/pairing_sessions?session_code=eq.${encodeURIComponent(
       sessionCode,
     )}`,
@@ -305,6 +341,7 @@ export async function deletePairingSession(sessionCode: string): Promise<void> {
       method: 'DELETE',
       headers: getHeaders(),
     },
+    8_000,
   ).catch(() => {})
 }
 
@@ -339,7 +376,7 @@ export async function approvePairingSession(
   const syncKey = ensureSyncKey()
   await pushDataToCloud(syncKey, currentData)
 
-  const patchRes = await fetch(
+  const patchRes = await fetchWithTimeout(
     `${SUPABASE_URL}/rest/v1/pairing_sessions?session_code=eq.${encodeURIComponent(
       sessionCode,
     )}`,
@@ -351,6 +388,7 @@ export async function approvePairingSession(
         status: 'claimed',
       }),
     },
+    15_000,
   )
 
   if (!patchRes.ok) {
@@ -363,7 +401,7 @@ export async function approvePairingSession(
   }
 }
 
-// 5. Upload data lokal + media IndexedDB (Foto & MP3) ke cloud
+// 5. Upload data lokal + media ringan ke cloud
 export async function pushDataToCloud(
   syncKey: string,
   payload: AppData,
@@ -379,21 +417,26 @@ export async function pushDataToCloud(
     __syncedMedia: mediaBundle,
   }
 
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/user_sync_data`, {
-    method: 'POST',
-    headers: getHeaders({
-      Prefer: 'resolution=merge-duplicates,return=minimal',
-    }),
-    body: JSON.stringify({
-      sync_key: syncKey,
-      payload: envelope,
-      updated_at: nowIso,
-      updated_by_device: detectDeviceName(),
-    }),
-  })
+  const response = await fetchWithTimeout(
+    `${SUPABASE_URL}/rest/v1/user_sync_data`,
+    {
+      method: 'POST',
+      headers: getHeaders({
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      }),
+      body: JSON.stringify({
+        sync_key: syncKey,
+        payload: envelope,
+        updated_at: nowIso,
+        updated_by_device: detectDeviceName(),
+      }),
+    },
+    25_000,
+  )
 
   if (!response.ok) {
-    throw new Error('Gagal mengunggah data ke cloud.')
+    const detail = await response.text().catch(() => '')
+    throw new Error(`Gagal mengunggah (${response.status}): ${detail}`)
   }
 
   localStorage.setItem(LAST_SYNCED_AT_STORAGE, nowIso)
@@ -401,7 +444,7 @@ export async function pushDataToCloud(
   return nowIso
 }
 
-// 6. Download data terbaru dari cloud (hanya jika versi cloud lebih baru daripada terakhir disinkronkan)
+// 6. Download data terbaru dari cloud
 export async function pullDataFromCloud(
   syncKey: string,
   force: boolean = false,
@@ -412,7 +455,7 @@ export async function pullDataFromCloud(
 } | null> {
   if (!isSupabaseConfigured()) return null
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${SUPABASE_URL}/rest/v1/user_sync_data?sync_key=eq.${encodeURIComponent(
       syncKey,
     )}&select=payload,updated_at`,
@@ -420,10 +463,12 @@ export async function pullDataFromCloud(
       method: 'GET',
       headers: getHeaders(),
     },
+    25_000,
   )
 
   if (!response.ok) {
-    throw new Error('Gagal mengambil data dari cloud.')
+    const detail = await response.text().catch(() => '')
+    throw new Error(`Gagal mengambil data (${response.status}): ${detail}`)
   }
 
   const rows = (await response.json()) as {
