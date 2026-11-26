@@ -1,4 +1,3 @@
-
 import {
   initialAppData,
   type AppData,
@@ -43,6 +42,28 @@ export function normalizeAppData(
           typeof record.focusMinutes === 'number'
             ? record.focusMinutes
             : 0,
+        breakSessions:
+          typeof record.breakSessions === 'number'
+            ? record.breakSessions
+            : 0,
+        ...(record.reflection && typeof record.reflection === 'object'
+          ? {
+              reflection: {
+                good:
+                  typeof record.reflection.good === 'string'
+                    ? record.reflection.good
+                    : '',
+                improve:
+                  typeof record.reflection.improve === 'string'
+                    ? record.reflection.improve
+                    : '',
+                next:
+                  typeof record.reflection.next === 'string'
+                    ? record.reflection.next
+                    : '',
+              },
+            }
+          : {}),
       }
     })
   }
