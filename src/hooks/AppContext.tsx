@@ -1374,22 +1374,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function replaceData(newData: AppData) {
-    stopBackgroundTimerKeepAlive()
-    stopCompletionAlert()
-
     const normalized = normalizeAppData(newData)
-    const restoredFocusMinutes = getMinutes(
-      normalized.settings.focusDuration,
-      25,
-    )
 
-    setTimerDateKey(formatDateKey())
-    setFocusTimer({
-      mode: 'focus',
-      status: 'idle',
-      endsAt: null,
-      remainingSeconds: restoredFocusMinutes * 60,
-      sessionMinutes: restoredFocusMinutes,
+    setFocusTimer((current) => {
+      if (current.status === 'running' || current.status === 'paused') {
+        return current
+      }
+
+      stopBackgroundTimerKeepAlive()
+      stopCompletionAlert()
+
+      const restoredFocusMinutes = getMinutes(
+        normalized.settings.focusDuration,
+        25,
+      )
+
+      setTimerDateKey(formatDateKey())
+      return {
+        mode: 'focus',
+        status: 'idle',
+        endsAt: null,
+        remainingSeconds: restoredFocusMinutes * 60,
+        sessionMinutes: restoredFocusMinutes,
+      }
     })
 
     setData({
